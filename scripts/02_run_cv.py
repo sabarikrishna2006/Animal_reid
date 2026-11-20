@@ -26,7 +26,8 @@ def main():
     cv = tabs["cv"]
     t_tab = time.time() - t0
     trans_on = cfg["transductive"].get("enabled", False)
-    out = run_second_level(cv, cfg, test=tabs["test"] if trans_on else None)
+    from reid.pipeline import load_extra_cv
+    out = run_second_level(cv, cfg, test=tabs["test"] if trans_on else None, extra=load_extra_cv(cfg))
     cv, qdf, T = out["cv"], out["qdf"], out["T"]
     results = {}
     for method in cfg["model"].get("methods", ["softmax", "direct"]):

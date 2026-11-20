@@ -210,9 +210,28 @@ def tune_beta(df, qdf, pnew_col, T, method, grid=np.round(np.arange(-3, 3.01, 0.
     return best
 
 
-def run_second_level(cv, cfg, log=print, test=None):
-    """OOF reranker -> OOF P(new) -> T, beta. If test given, also fit on all CV and predict test."""
+def load_extra_cv(cfg, log=print):
+    """Optional second CV design whose tables are added to the TRAINING data of the second-level models
+    (config: model.extra_cv = path of another experiment config). Its splits are offset by +10."""
+    path = cfg["model"].get("extra_cv")
+    if not path:
+        return None
+    from .io import load_config, ROOT
+    c2 = load_config(ROOT / path)
+    d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
+    ex = build_tables(c2, d2, ctx2, s2, log=lambda *x: None)["cv"].copy()
+    ex["split"] = ex["split"] + 10
+    log(f"[extra_cv] {path}: {len(ex)} extra training rows")
+    return ex
+
+
+def run_second_level(cv, cfg, log=print, test=None, extra=None):
+    """OOF reranker -> OOF P(new) -> T, beta. If test given, also fit on all CV and predict test.
+    extra: additional CV tables (another split design) used ONLY as training data; outputs are restricted to `cv`."""
     mcfg = cfg["model"]
+    if extra is not None:
+        common = [c for c in cv.columns if c in extra.columns]
+        cv = pd.concat([cv[common], extra[common]], ignore_index=True)
     drop = tuple(mcfg.get("drop_features", []))
     feats = feature_cols(cv, drop)
     groups = cv.group.values
@@ -236,7 +255,16 @@ def run_second_level(cv, cfg, log=print, test=None):
         d = cv[cv.species == sp]
         gid = pd.factorize(d.split.astype(str) + "|" + d.query_id)[0]
         T[sp] = float(fit_temperature(logit(np.clip(d.p.values, 1e-6, 1 - 1e-6)), gid, d.y.values))
+    cv_all, qdf_all = cv, qdf
+    cv = cv[cv.split < 10].reset_index(drop=True)          # report / tune only on the primary design
+    qdf = qdf[qdf.split < 10].reset_index(drop=True)
+    T = {}
+    for sp in SPECIES:
+        d = cv[cv.species == sp]
+        gid = pd.factorize(d.split.astype(str) + "|" + d.query_id)[0]
+        T[sp] = float(fit_temperature(logit(np.clip(d.p.values, 1e-6, 1 - 1e-6)), gid, d.y.values))
     out = {"cv": cv, "qdf": qdf, "T": T, "feats": feats, "qfeats": qfeats}
+    cv, qdf = cv_all, qdf_all                                # final models are fit on everything
     if test is not None:
         test = test.copy(); tl = []
         for kd in kinds:

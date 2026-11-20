@@ -41,7 +41,8 @@ def main():
         from reid.calibration import em_prior, prior_shift
         data, ctx, splits = prepare(cfg)
         tabs = build_tables(cfg, data, ctx, splits)
-        out = run_second_level(tabs["cv"], cfg, test=tabs["test"])
+        from reid.pipeline import load_extra_cv
+        out = run_second_level(tabs["cv"], cfg, test=tabs["test"], extra=load_extra_cv(cfg))
         cv, qdf, T, test, tq = out["cv"], out["qdf"], out["T"], out["test"], out["tqdf"]
         method = cfg["model"].get("final_method", "softmax")
         beta = tune_beta(cv, qdf, "pnew", T, method)

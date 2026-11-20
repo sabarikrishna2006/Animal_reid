@@ -1,0 +1,1 @@
+v7: g5_final (CV v1) + SIFT top-15 ids x 8 imgs, 30 candidates

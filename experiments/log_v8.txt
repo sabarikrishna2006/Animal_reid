@@ -1,0 +1,13 @@
+compliance OK
+[prepare] data+embeddings+splits in 21s
+[tables] cached tables_a8361f265e.pkl
+[extra_cv] configs/exp_v3_sift.json: 637590 extra training rows
+[reranker:lgb] 67 feats, OOF done in 125s, best iters [315, 409, 316, 264, 413]
+[pnew] 37 feats, OOF done, iters [152, 115, 146, 97, 131]
+[softmax] CV MAP@5 = 0.9067 ± 0.0111 | hyena 0.8796 leopard 0.9277 | known h/l 0.843/0.907 | newAUC h/l 0.941/0.963 | beta {'hyena': 0.6, 'leopard': 0.2} T [1.28 1.2 ]
+[trans] pair model OOF AUC=0.9772, AUC cos only=0.8999, pairs=129590 (31s)
+[trans] hyena: best alpha=0.8 tau_e=0.6 new_scale=e^-0.2 MAP=0.8857 (alpha=0: 0.8796)
+[trans] leopard: best alpha=0.9 tau_e=0.5 new_scale=e^0.2 MAP=0.9347 (alpha=0: 0.9277)
+[trans  ] CV MAP@5 = 0.9133 ± 0.0101 | off: 0.9067 | paired delta +0.0066 (SE 0.0010)
+top features: ['z_lda', 'z_pcaw', 'rank_lda', 'gap_lda', 'q_std10_pcaw', 'top2_pcaw', 'sift_inl_top2', 'sift_inl_max', 'proto_lda', 'z_l2', 'sift_inl_minus_qmax', 'sift_sim_best']
+saved 20261120-204820_v8_mix (388s)

@@ -40,3 +40,8 @@ exp_id,date,parent_exp,change,cv_mean,cv_std,map_hyena,map_leopard,known_map,new
 20261119-232103_v4_profile,20261119,20261119-225909_v3_sift,v4: + second-order profile similarity + within-identity spread,0.86656,0.00705,0.84651,0.88206,0.8038,0.90741,,,
 20261120-031602_v5_ratio09,20261120,20261119-225909_v3_sift,v5: SIFT Lowe ratio 0.8 -> 0.9,0.86775,0.00993,0.84744,0.88344,0.80796,0.9074,,,
 20261120-033454_v6_xlda,20261120,20261119-225909_v3_sift,v6: + cross-flank LDA embedding (4th metric),0.8675,0.00723,0.84661,0.88365,0.80944,0.90936,,,
+20261120-202942_v7_g5wide,20261120,20261119-131626_g5_final,"v7: g5_final (CV v1) + SIFT top-15 ids x 8 imgs, 30 candidates",0.9108,0.00936,0.8836,0.93182,0.87174,0.94816,,,
+20261120-203616_sub_v7_g5wide,20261120,,SUBMISSION -> sub_20261120-203616_sub_v7_g5wide.csv,0.9108,,,,,,,,
+20261120-204820_v8_mix,20261120,20261120-202942_v7_g5wide,v8: v7 + second-level models trained on CV v1 + CV v2 tables (mixed difficulty),0.91331,0.01005,0.88569,0.93467,0.87544,0.9523,,,
+20261120-205512_sub_v8_mix,20261120,,SUBMISSION -> sub_20261120-205512_sub_v8_mix.csv,0.91331,,,,,,,,
+20261120-205711_sub_baseline_rawcos,20261120,,SUBMISSION -> sub_20261120-205711_sub_baseline_rawcos.csv,nan,,,,,,,,
