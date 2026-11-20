@@ -11,8 +11,10 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 | `sub_20261119-060645_sub_baseline_rawcos.csv` (regenerated as `sub_20261120-205711_...`) | best-cosine identity + threshold for "new" | CV v1: 0.849 | 0.76983 |
 | **`sub_20261119-132154_sub_g5_final.csv`** | **full pipeline (below), tuned on CV v1** | **CV v1: 0.905** | **0.84116 (best)** |
 | `sub_20261119-230723_sub_v3_sift.csv` | same pipeline + wider SIFT, tuned on CV v2 | CV v2: 0.867 | 0.83192 |
-| `sub_20261120-203616_sub_v7_g5wide.csv` | g5_final + wider SIFT (15 ids × 8 imgs, 30 candidates) | CV v1: 0.9108 (nested 0.908) | *not yet submitted* |
-| **`sub_20261120-205512_sub_v8_mix.csv`** | **v7 + second-level models trained on CV v1 + CV v2 tables** | **CV v1: 0.9133 (nested 0.912)** | ***not yet submitted*** |
+| `sub_20261120-203616_sub_v7_g5wide.csv` | g5_final + wider SIFT (15 ids × 8 imgs, 30 candidates) | CV v1: 0.9108 (nested 0.908) | 0.84640 |
+| `sub_20261120-205512_sub_v8_mix.csv` | v7 + second-level models trained on CV v1 + CV v2 tables | CV v1: 0.9133 (nested 0.912) | 0.84856 |
+| Dev's `sub_v5.csv` (separate pipeline, see *Team blend*) | centered-cosine + LDA retrieval, deep SIFT, 2-round LightGBM + LambdaRank | Dev's CV: 0.8532 | 0.84102 |
+| **`sub_team_blend.csv`** | **50/50 average of v8 and Dev's v5 label probabilities** | — | **≈0.85 (best)** |
 
 Read it carefully:
 - CV v1 overestimates the LB by about 0.06–0.08 but **ranked the methods correctly** (baseline < final on both).
@@ -38,6 +40,19 @@ Read it carefully:
    so they see the full range of known-animal difficulty; the real test lies between the two. +0.0025 CV.
 6. **Transductive** (`transductive.py`): query–query pair model (AUC 0.97), graph over test images, label propagation.
    Worth about +0.009 on CV v1.
+
+## Team blend (current best)
+Two independent pipelines (this repo's v8 and Dev's) agree on the top-1 label for only ~89 % of test images, so averaging
+their calibrated label probabilities (simple model combination, allowed) beats both on the public LB.
+1. Every transductive run of `03_make_submission.py` now also writes `submissions/sub_<id>.probs.pkl`:
+   `{test_id: {label: probability}}`, the final propagated probabilities (with the tuned new-scale), renormalised.
+   Its argmax equals the first label of the submission written in the same run.
+2. Dev's pipeline writes the same format (`test_probs.pkl`, temperature-calibrated on his honest CV).
+3. Blend (still only through the submission script, validated like every submission):
+```
+py scripts/03_make_submission.py --blend submissions/sub_<v8>.probs.pkl path/to/test_probs.pkl --w 0.5
+```
+Next: tune `--w` and the new_individual offset on a validation set that both pipelines are run on (Dev's 8 splits).
 
 ## Setup
 ```

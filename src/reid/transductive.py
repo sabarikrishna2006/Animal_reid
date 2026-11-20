@@ -23,6 +23,8 @@ from .models import oof_predict, fit_full
 from .sift_match import FEATS as SF
 from .splits import test_fold
 
+EXPORT_PROBS = {}   # test query id -> {label: probability}, filled by apply_transductive
+
 PAIR_FEATS = ["cos_l2", "cos_pcaw", "rank_ij", "rank_ji", "same_side", "opp_side", "kp_min", "dlognorm",
               "sift_inl", "sift_inl_strict", "sift_mutual", "sift_ratio", "sift_overkp", "sift_spread",
               "top1_same", "p1_min", "species_is_leo"]
@@ -238,4 +240,9 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
         keys, outp = run_fold(post_te, pte[pte.species == sp_], f, r, bb["alpha"], bb["tau_e"], tc.get("consensus", True))
         for kk, (l, p) in zip(keys, outp):
             preds[kk.split("|", 1)[1]] = _rank(l, p, np.exp(bb["log_new_scale"]))
+            # export for team blending: final label probabilities (same new_scale as the ranking), renormalised
+            ll, pp = list(l), np.array(p, float).copy()
+            if NEW in ll:
+                pp[ll.index(NEW)] *= np.exp(bb["log_new_scale"])
+            EXPORT_PROBS[kk.split("|", 1)[1]] = dict(zip(ll, pp / pp.sum()))
     return preds, best, pcv
