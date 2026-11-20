@@ -1,0 +1,1 @@
+{"exp_slug": "g3_rerank_nosift", "sift": {"enabled": false}, "model": {"reranker": "lgb", "pnew_model": "lgb"}}

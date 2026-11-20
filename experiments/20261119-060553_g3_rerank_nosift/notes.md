@@ -1,0 +1,1 @@
+Gate3: LGB reranker on global+viewpoint feats, P(new) LGB, no SIFT

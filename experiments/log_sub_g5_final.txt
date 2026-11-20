@@ -1,0 +1,11 @@
+compliance OK
+[prepare] data+embeddings+splits in 26s
+[tables] cached tables_af3d6f0582.pkl
+[reranker:lgb] 67 feats, OOF done in 66s, best iters [177, 313, 362, 380, 164]
+[pnew] 37 feats, OOF done, iters [126, 166, 160, 196, 126]
+novelty: {'pi_cv_hyena': 0.319, 'pi_test_mean_pnew_hyena': 0.33, 'pi_test_em_hyena': 0.338, 'pi_cv_leopard': 0.377, 'pi_test_mean_pnew_leopard': 0.348, 'pi_test_em_leopard': 0.33}
+[trans] pair model OOF AUC=0.9738, AUC cos only=0.8999, pairs=129590 (53s)
+[trans] hyena: best alpha=0.6 tau_e=0.5 new_scale=e^-0.2 MAP=0.8779 (alpha=0: 0.8711)
+[trans] leopard: best alpha=0.9 tau_e=0.5 new_scale=e^0.0 MAP=0.9263 (alpha=0: 0.9162)
+CV with transductive: 0.9052 ± 0.0101
+wrote E:\ML_projectr\submissions\sub_20261119-132154_sub_g5_final.csv | new@rank1 {'hyena': 0.3853738701725555, 'leopard': 0.40470139771283353} | {"cv_mean": 0.9052018325017993, "beta": {"hyena": 0.2, "leopard": 0.15}}

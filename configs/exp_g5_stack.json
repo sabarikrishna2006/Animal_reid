@@ -1,0 +1,2 @@
+{"exp_slug": "g5_stack", "transductive": {"features": true},
+ "model": {"rerankers": ["lgb", "xgb", "cat"], "methods": ["softmax"], "final_method": "softmax"}}

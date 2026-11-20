@@ -1,0 +1,24 @@
+compliance OK
+[prepare] data+embeddings+splits in 17s
+[sift] 726692 pairs requested (10s to list)
+  [table] split 0 hyena: 1038 queries, 20760 rows (8s)
+  [table] split 0 leopard: 3110 queries, 62200 rows (30s)
+  [table] split 1 hyena: 1069 queries, 21380 rows (37s)
+  [table] split 1 leopard: 3273 queries, 65460 rows (60s)
+  [table] split 2 hyena: 1072 queries, 21440 rows (67s)
+  [table] split 2 leopard: 3147 queries, 62940 rows (89s)
+  [table] split 3 hyena: 1038 queries, 20760 rows (96s)
+  [table] split 3 leopard: 3399 queries, 67980 rows (118s)
+  [table] split 4 hyena: 1035 queries, 20700 rows (126s)
+  [table] split 4 leopard: 3072 queries, 61440 rows (148s)
+[tables] built in 181s -> tables_972bf054a3.pkl
+[reranker:lgb] 67 feats, OOF done in 68s, best iters [624, 299, 260, 442, 226]
+[pnew] 37 feats, OOF done, iters [126, 84, 93, 124, 157]
+[softmax] CV MAP@5 = 0.8368 ± 0.0086 | hyena 0.8265 leopard 0.8448 | known h/l 0.810/0.776 | newAUC h/l 0.903/0.905 | beta {'hyena': 0.4, 'leopard': 0.3} T [1.24 1.37]
+  [sift] computed 11742 pairs in 27s (2.27 ms/pair wall)
+[trans] pair model OOF AUC=0.9660, AUC cos only=0.9110, pairs=212530 (68s)
+[trans] hyena: best alpha=0.9 tau_e=0.6 new_scale=e^-0.2 MAP=0.8420 (alpha=0: 0.8265)
+[trans] leopard: best alpha=0.95 tau_e=0.7 new_scale=e^-0.2 MAP=0.8744 (alpha=0: 0.8448)
+[trans  ] CV MAP@5 = 0.8603 ± 0.0090 | off: 0.8368 | paired delta +0.0235 (SE 0.0009)
+top features: ['z_lda', 'top2_lda', 'proto_lda', 'sift_inl_max', 'z_pcaw', 'proto_l2', 'log_nimg', 'max_same_side', 'max_pcaw', 'gap_lda', 'q_std10_pcaw', 'sift_sim_best']
+saved 20261119-215629_v2_g5 (636s)

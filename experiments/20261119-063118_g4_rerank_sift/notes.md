@@ -1,0 +1,1 @@
+Gate4: + SIFT/RANSAC identity aggregates (top-10 ids x 3 imgs)

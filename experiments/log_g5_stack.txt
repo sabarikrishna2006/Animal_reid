@@ -1,0 +1,10 @@
+compliance OK
+[prepare] data+embeddings+splits in 30s
+[tables] cached tables_af3d6f0582.pkl
+[reranker:lgb] 67 feats, OOF done in 77s, best iters [177, 313, 362, 380, 164]
+[reranker:xgb] 67 feats, OOF done in 196s, best iters [222, 453, 353, 389, 182]
+[reranker:cat] 67 feats, OOF done in 430s, best iters [111, 665, 843, 872, 244]
+[pnew] 37 feats, OOF done, iters [145, 161, 118, 189, 116]
+[softmax] CV MAP@5 = 0.8982 ± 0.0101 | hyena 0.8729 leopard 0.9178 | known h/l 0.836/0.888 | newAUC h/l 0.934/0.961 | beta {'hyena': 0.25, 'leopard': 0.25} T [1.3  1.24]
+top features: ['z_lda', 'z_pcaw', 'gap_lda', 'rank_lda', 'top2_pcaw', 'sift_inl_top2', 'proto_lda', 'sift_inl_max', 'q_std10_lda', 'comb_rank', 'sift_sim_best', 'q_std10_pcaw']
+saved 20261119-073317_g5_stack (498s)

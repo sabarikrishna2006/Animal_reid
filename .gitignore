@@ -1,0 +1,14 @@
+# competition data (download from Kaggle; never commit) and all caches
+data/
+*.npy
+*.npz
+*.pkl
+# exploratory / scratch / tool output
+scratch/
+catboost_info/
+__pycache__/
+*.pyc
+# research papers and course PDFs (copyright) - keep locally
+*.pdf
+# large per-run logs are fine to keep, but not raw OOF arrays
+experiments/*/oof.npz

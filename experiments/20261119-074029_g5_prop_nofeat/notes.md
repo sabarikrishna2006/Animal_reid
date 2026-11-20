@@ -1,0 +1,1 @@
+Gate5 ablation: propagation without transductive features

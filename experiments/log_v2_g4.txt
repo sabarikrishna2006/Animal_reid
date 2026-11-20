@@ -1,0 +1,20 @@
+compliance OK
+[prepare] data+embeddings+splits in 34s
+[sift] 726692 pairs requested (25s to list)
+  [sift] computed 315773 pairs in 879s (2.79 ms/pair wall)
+  [table] split 0 hyena: 1038 queries, 20760 rows (8s)
+  [table] split 0 leopard: 3110 queries, 62200 rows (28s)
+  [table] split 1 hyena: 1069 queries, 21380 rows (35s)
+  [table] split 1 leopard: 3273 queries, 65460 rows (55s)
+  [table] split 2 hyena: 1072 queries, 21440 rows (62s)
+  [table] split 2 leopard: 3147 queries, 62940 rows (82s)
+  [table] split 3 hyena: 1038 queries, 20760 rows (89s)
+  [table] split 3 leopard: 3399 queries, 67980 rows (109s)
+  [table] split 4 hyena: 1035 queries, 20700 rows (116s)
+  [table] split 4 leopard: 3072 queries, 61440 rows (137s)
+[tables] built in 168s -> tables_9425c2b891.pkl
+[reranker:lgb] 61 feats, OOF done in 61s, best iters [421, 344, 206, 332, 225]
+[pnew] 34 feats, OOF done, iters [135, 76, 89, 121, 143]
+[softmax] CV MAP@5 = 0.8318 ± 0.0090 | hyena 0.8155 leopard 0.8444 | known h/l 0.805/0.774 | newAUC h/l 0.873/0.897 | beta {'hyena': 0.15, 'leopard': 0.3} T [1.24 1.36]
+top features: ['z_lda', 'top2_lda', 'proto_lda', 'sift_inl_max', 'z_pcaw', 'log_nimg', 'proto_l2', 'gap_lda', 'max_same_side', 'max_pcaw', 'max_lda', 'sift_sim_best']
+saved 20261119-214547_v2_g4 (1195s)

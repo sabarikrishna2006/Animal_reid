@@ -1,0 +1,1 @@
+Gate5: stack LGB+XGB+CatBoost rerankers (mean logit), trans features, no propagation

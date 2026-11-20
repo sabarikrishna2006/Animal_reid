@@ -1,0 +1,2 @@
+{"cv": {"enc_thr": {"hyena": 0.2, "leopard": 0.3}, "p_move": {"hyena": 0.5, "leopard": 0.5},
+        "f_new_id": {"hyena": 0.1, "leopard": 0.2}, "max_new_id_size": 1000000}}

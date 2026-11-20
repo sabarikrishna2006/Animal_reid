@@ -1,0 +1,14 @@
+# Allowed libraries only (see CLAUDE.md / problem statement). Python >= 3.10.
+numpy
+pandas
+scipy
+scikit-learn
+statsmodels
+lightgbm
+xgboost
+catboost
+networkx
+opencv-python
+faiss-cpu
+matplotlib
+seaborn

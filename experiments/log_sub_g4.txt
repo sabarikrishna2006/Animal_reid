@@ -1,0 +1,18 @@
+compliance OK
+[prepare] data+embeddings+splits in 16s
+[sift] 493579 pairs requested (8s to list)
+  [table] split 0 hyena: 709 queries, 14180 rows (7s)
+  [table] split 0 leopard: 1876 queries, 37520 rows (24s)
+  [table] split 1 hyena: 747 queries, 14940 rows (31s)
+  [table] split 1 leopard: 1821 queries, 36420 rows (48s)
+  [table] split 2 hyena: 740 queries, 14800 rows (55s)
+  [table] split 2 leopard: 1850 queries, 37000 rows (73s)
+  [table] split 3 hyena: 752 queries, 15040 rows (79s)
+  [table] split 3 leopard: 1904 queries, 38080 rows (97s)
+  [table] split 4 hyena: 732 queries, 14640 rows (104s)
+  [table] split 4 leopard: 1828 queries, 36560 rows (121s)
+[tables] built in 152s -> tables_3da87dd591.pkl
+[reranker:lgb] 61 feats, OOF done in 38s, best iters [172, 336, 442, 349, 173]
+[pnew] 34 feats, OOF done, iters [105, 140, 164, 141, 116]
+novelty: {'pi_cv_hyena': 0.319, 'pi_test_mean_pnew_hyena': 0.298, 'pi_test_em_hyena': 0.272, 'pi_cv_leopard': 0.377, 'pi_test_mean_pnew_leopard': 0.36, 'pi_test_em_leopard': 0.348}
+wrote E:\ML_projectr\submissions\sub_20261119-063601_sub_g4_rerank_sift.csv | new@rank1 {'hyena': 0.4108463434675431, 'leopard': 0.4110546378653113} | {"cv_mean": 0.8943448365822124, "beta": {"hyena": 0.2, "leopard": -0.15}}

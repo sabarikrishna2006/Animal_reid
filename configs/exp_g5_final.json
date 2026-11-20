@@ -1,0 +1,3 @@
+{"exp_slug": "g5_final",
+ "transductive": {"enabled": true, "features": true, "consensus": false, "alphas": [0.0, 0.4, 0.6, 0.8, 0.9, 0.95], "tau_e": [0.3, 0.4, 0.5, 0.6, 0.7]},
+ "model": {"methods": ["softmax"], "final_method": "softmax"}}

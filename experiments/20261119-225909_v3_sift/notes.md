@@ -1,0 +1,1 @@
+v3: SIFT on top-15 ids x 8 imgs, 30 candidates

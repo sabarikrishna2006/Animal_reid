@@ -1,0 +1,24 @@
+{
+  "cv_mean": 0.8943448365822124,
+  "cv_std": 0.010483375595616826,
+  "beta": {
+    "hyena": 0.2,
+    "leopard": -0.15
+  },
+  "T": {
+    "hyena": 1.3264684441250025,
+    "leopard": 1.2530266391238725
+  },
+  "method": "softmax",
+  "pi_cv_hyena": 0.3190217391304348,
+  "pi_test_mean_pnew_hyena": 0.29823455764993106,
+  "pi_test_em_hyena": 0.27151536151089506,
+  "pi_cv_leopard": 0.3771958185149262,
+  "pi_test_mean_pnew_leopard": 0.3598443599781514,
+  "pi_test_em_leopard": 0.34789127706302714,
+  "frac_new_at_rank1": {
+    "hyena": 0.4108463434675431,
+    "leopard": 0.4110546378653113
+  },
+  "seconds": 239.5057122707367
+}

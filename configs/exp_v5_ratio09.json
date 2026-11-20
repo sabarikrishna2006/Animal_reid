@@ -1,0 +1,51 @@
+{
+ "exp_slug": "v5_ratio09",
+ "cv": {
+  "enc_thr": {
+   "hyena": 0.2,
+   "leopard": 0.3
+  },
+  "p_move": {
+   "hyena": 0.5,
+   "leopard": 0.5
+  },
+  "f_new_id": {
+   "hyena": 0.1,
+   "leopard": 0.2
+  },
+  "max_new_id_size": 1000000
+ },
+ "retrieval": {
+  "n_cand": 30
+ },
+ "sift": {
+  "top_ids": 15,
+  "imgs_per_id": 8,
+  "ratio": 0.9
+ },
+ "transductive": {
+  "enabled": true,
+  "features": true,
+  "consensus": false,
+  "alphas": [
+   0.0,
+   0.6,
+   0.8,
+   0.9,
+   0.95
+  ],
+  "tau_e": [
+   0.4,
+   0.5,
+   0.6,
+   0.7,
+   0.8
+  ]
+ },
+ "model": {
+  "methods": [
+   "softmax"
+  ],
+  "final_method": "softmax"
+ }
+}

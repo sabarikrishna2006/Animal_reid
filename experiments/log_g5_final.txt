@@ -1,0 +1,12 @@
+compliance OK
+[prepare] data+embeddings+splits in 28s
+[tables] cached tables_af3d6f0582.pkl
+[reranker:lgb] 67 feats, OOF done in 19891s, best iters [177, 313, 362, 380, 164]
+[pnew] 37 feats, OOF done, iters [126, 166, 160, 196, 126]
+[softmax] CV MAP@5 = 0.8965 ± 0.0109 | hyena 0.8711 leopard 0.9162 | known h/l 0.835/0.888 | newAUC h/l 0.932/0.959 | beta {'hyena': 0.2, 'leopard': 0.15} T [1.34 1.26]
+[trans] pair model OOF AUC=0.9738, AUC cos only=0.8999, pairs=129590 (52s)
+[trans] hyena: best alpha=0.6 tau_e=0.5 new_scale=e^-0.2 MAP=0.8779 (alpha=0: 0.8711)
+[trans] leopard: best alpha=0.9 tau_e=0.5 new_scale=e^0.0 MAP=0.9263 (alpha=0: 0.9162)
+[trans  ] CV MAP@5 = 0.9052 ± 0.0101 | off: 0.8965 | paired delta +0.0087 (SE 0.0005)
+top features: ['z_lda', 'z_pcaw', 'gap_lda', 'rank_lda', 'top2_pcaw', 'sift_inl_top2', 'proto_lda', 'sift_inl_max', 'q_std10_lda', 'comb_rank', 'sift_sim_best', 'q_std10_pcaw']
+saved 20261119-131626_g5_final (20150s)

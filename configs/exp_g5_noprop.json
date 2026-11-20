@@ -1,0 +1,2 @@
+{"exp_slug": "g5_noprop", "transductive": {"enabled": false, "features": true},
+ "model": {"methods": ["softmax"], "final_method": "softmax"}}

@@ -1,0 +1,2 @@
+l2|max                 CV=0.7550±0.0133 hyena=0.7435(tau 0.47) leopard=0.7639(tau 0.54) recall@20 h=0.902 l=0.926 [96s]
+pcaw:512:1|max         CV=0.7843±0.0135 hyena=0.7771(tau 0.19) leopard=0.7899(tau 0.26) recall@20 h=0.907 l=0.919 [89s]
