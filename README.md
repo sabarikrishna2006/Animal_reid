@@ -14,7 +14,8 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 | `sub_20261120-203616_sub_v7_g5wide.csv` | g5_final + wider SIFT (15 ids × 8 imgs, 30 candidates) | CV v1: 0.9108 (nested 0.908) | 0.84640 |
 | `sub_20261120-205512_sub_v8_mix.csv` | v7 + second-level models trained on CV v1 + CV v2 tables | CV v1: 0.9133 (nested 0.912) | 0.84856 |
 | Dev's `sub_v5.csv` (separate pipeline, see *Team blend*) | centered-cosine + LDA retrieval, deep SIFT, 2-round LightGBM + LambdaRank | Dev's CV: 0.8532 | 0.84102 |
-| **`sub_team_blend.csv`** | **50/50 average of v8 and Dev's v5 label probabilities** | — | **≈0.85 (best)** |
+| **`sub_team_blend.csv`** | **50/50 average of v8 and Dev's v5 label probabilities** | — | **0.85813 (best)** |
+| `sub_team_blend_prior.csv` | same, P(new) of each model prior-shifted to 31 % before averaging | — | 0.85504 |
 
 Read it carefully:
 - CV v1 overestimates the LB by about 0.06–0.08 but **ranked the methods correctly** (baseline < final on both).
@@ -43,7 +44,8 @@ Read it carefully:
 
 ## Team blend (current best)
 Two independent pipelines (this repo's v8 and Dev's) agree on the top-1 label for only ~89 % of test images, so averaging
-their calibrated label probabilities (simple model combination, allowed) beats both on the public LB.
+their calibrated label probabilities (simple model combination, allowed) beats both on the public LB (0.85813 vs 0.84856 / 0.84102).
+Pushing new_individual up with a prior-shift correction hurt (0.85504), so the plain average is kept.
 1. Every transductive run of `03_make_submission.py` now also writes `submissions/sub_<id>.probs.pkl`:
    `{test_id: {label: probability}}`, the final propagated probabilities (with the tuned new-scale), renormalised.
    Its argmax equals the first label of the submission written in the same run.
