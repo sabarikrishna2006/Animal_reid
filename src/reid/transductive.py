@@ -25,6 +25,7 @@ from .splits import test_fold
 
 EXPORT_PROBS = {}   # test query id -> {label: probability}, filled by apply_transductive
 
+KP_FEATS = ["kp_qq", "kp_qq_sym", "kp_qq_rank"]   # keypoint query-graph pair features (transductive.kp_graph)
 PAIR_FEATS = ["cos_l2", "cos_pcaw", "rank_ij", "rank_ji", "same_side", "opp_side", "kp_min", "dlognorm",
               "sift_inl", "sift_inl_strict", "sift_mutual", "sift_ratio", "sift_overkp", "sift_spread",
               "top1_same", "p1_min", "species_is_leo"]
@@ -46,7 +47,7 @@ def _posteriors(df, qdf, T, beta):
     return out
 
 
-def _pair_table(fold, ctx, k, post, split):
+def _pair_table(fold, ctx, k, post, split, kpg=None):
     Z = ctx.emb["l2"][fold.query_rows]; Zp = ctx.emb["pcaw"][fold.query_rows]
     S = Z @ Z.T; np.fill_diagonal(S, -np.inf)
     order = np.argsort(-S, axis=1)
@@ -55,9 +56,11 @@ def _pair_table(fold, ctx, k, post, split):
     rows = []
     qr, qids = fold.query_rows, fold.query_ids
     side, kp, ln = ctx.side, ctx.kp, ctx.lognorm
+    kscore, ktop = kpg if kpg is not None else ({}, {})
     for i in range(len(qr)):
         li, pi_ = post[f"{split}|{qids[i]}"]
-        for j in nn[i]:
+        cand = list(nn[i]) + [j for j in ktop.get(i, []) if j not in set(nn[i])]   # + keypoint-graph neighbours
+        for j in cand:
             if j == i:
                 continue
             lj, pj = post[f"{split}|{qids[j]}"]
@@ -71,8 +74,10 @@ def _pair_table(fold, ctx, k, post, split):
                          f[SF.index("inl_aff")], f[SF.index("inl_aff_strict")], f[SF.index("n_mutual")],
                          f[SF.index("inl_ratio")], f[SF.index("inl_over_kp")], f[SF.index("spread_min")],
                          float(li[int(np.argmax(pi_))] == lj[int(np.argmax(pj))]), float(min(pi_.max(), pj.max())),
-                         int(fold.species == "leopard")))
-    df = pd.DataFrame(rows, columns=["i", "j"] + PAIR_FEATS)
+                         int(fold.species == "leopard"))
+                        + ((kscore.get((i, j), 0.0), kscore.get((j, i), 0.0),
+                            ktop[i].index(j) if j in ktop.get(i, []) else 99) if kpg is not None else ()))
+    df = pd.DataFrame(rows, columns=["i", "j"] + PAIR_FEATS + (KP_FEATS if kpg is not None else []))
     return df
 
 
@@ -167,33 +172,50 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
     t0 = time.time()
     folds = [(r, sp_, e[sp_][0]) for r, e in enumerate(splits) for sp_ in SPECIES]
     tfolds = [(-1, sp_, test_fold(data, sp_)) for sp_ in SPECIES]
+    KP = {}
+    if tc.get("kp_graph", False):
+        # keypoint query graph: extra candidate edges between query images that share SIFT keypoints (cached per fold)
+        import hashlib, pickle as _pk
+        from .io import P as _P
+        from .kpgraph import query_graph
+        for r, sp_, f in folds + tfolds:
+            h = hashlib.md5(np.asarray(f.query_rows).tobytes()).hexdigest()[:12]
+            cp = _P(cfg, "cache") / "kpgraph" / f"{sp_}_{h}.pkl"
+            if cp.exists():
+                KP[(r, sp_)] = _pk.loads(cp.read_bytes())
+            else:
+                KP[(r, sp_)] = query_graph(f, ctx); cp.parent.mkdir(parents=True, exist_ok=True); cp.write_bytes(_pk.dumps(KP[(r, sp_)]))
+        log(f"[trans] keypoint query graph ready for {len(KP)} folds ({time.time() - t0:.0f}s)")
+    PF = PAIR_FEATS + (KP_FEATS if KP else [])
     if ctx.pc is not None:
         pairs = []
-        for _, _, f in folds + tfolds:
+        for r, sp_, f in folds + tfolds:
             pairs += query_neighbour_pairs(f, ctx, k)
+            if KP:
+                pairs += [(f.query_rows[i], f.query_rows[j]) for i, js in KP[(r, sp_)][1].items() for j in js]
         ctx.pc.ensure(pairs)
     post_cv = _posteriors(cv, qdf, T, beta)
     post_te = _posteriors(test, tq, T, beta)
     ident = data.meta.identity.values
     ptabs = []
     for r, sp_, f in folds:
-        pt = _pair_table(f, ctx, k, post_cv, r)
+        pt = _pair_table(f, ctx, k, post_cv, r, KP.get((r, sp_)))
         pt["y"] = (ident[f.query_rows[pt.i.values]] == ident[f.query_rows[pt.j.values]]).astype(int)
         pt["group"] = ident[f.query_rows[pt.i.values]]
         pt["split"] = r; pt["species"] = sp_
         ptabs.append(pt)
     pcv = pd.concat(ptabs, ignore_index=True)
-    pcv["p_same"], _ = oof_predict(pcv, PAIR_FEATS, "y", pcv.group.values, kind="lgb")
+    pcv["p_same"], _ = oof_predict(pcv, PF, "y", pcv.group.values, kind="lgb")
     from sklearn.metrics import roc_auc_score
     log(f"[trans] pair model OOF AUC={roc_auc_score(pcv.y, pcv.p_same):.4f}, "
         f"AUC cos only={roc_auc_score(pcv.y, pcv.cos_l2):.4f}, pairs={len(pcv)} ({time.time() - t0:.0f}s)")
-    pm = fit_full(pcv, PAIR_FEATS, "y", pcv.group.values, kind="lgb")
+    pm = fit_full(pcv, PF, "y", pcv.group.values, kind="lgb")
     tt = []
     for r, sp_, f in tfolds:
-        pt = _pair_table(f, ctx, k, post_te, r); pt["split"] = r; pt["species"] = sp_
+        pt = _pair_table(f, ctx, k, post_te, r, KP.get((r, sp_))); pt["split"] = r; pt["species"] = sp_
         tt.append(pt)
     pte = pd.concat(tt, ignore_index=True)
-    pte["p_same"] = pm.predict(pte[PAIR_FEATS].to_numpy(np.float32))
+    pte["p_same"] = pm.predict(pte[PF].to_numpy(np.float32))
 
     def run_fold(post, ptab, f, r, alpha, tau_e, consensus):
         keys = [f"{r}|{q}" for q in f.query_ids]
