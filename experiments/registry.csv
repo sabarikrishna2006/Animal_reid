@@ -45,3 +45,6 @@ exp_id,date,parent_exp,change,cv_mean,cv_std,map_hyena,map_leopard,known_map,new
 20261120-204820_v8_mix,20261120,20261120-202942_v7_g5wide,v8: v7 + second-level models trained on CV v1 + CV v2 tables (mixed difficulty),0.91331,0.01005,0.88569,0.93467,0.87544,0.9523,,,
 20261120-205512_sub_v8_mix,20261120,,SUBMISSION -> sub_20261120-205512_sub_v8_mix.csv,0.91331,,,,,,,,
 20261120-205711_sub_baseline_rawcos,20261120,,SUBMISSION -> sub_20261120-205711_sub_baseline_rawcos.csv,nan,,,,,,,,
+20261121-072020_sub_v8_mix_plain_here,20261121,,SUBMISSION -> sub_20261121-072020_sub_v8_mix_plain_here.csv,0.91309,,,,,,,,
+20261121-075343_sub_v8_mix_lnb,20261121,,SUBMISSION -> sub_20261121-075343_sub_v8_mix_lnb.csv,0.91448,,,,,,,,
+20261121-110036_sub_team_blend_lnb2,20261121,,SUBMISSION -> sub_20261121-110036_sub_team_blend_lnb2.csv,nan,,,,,,,,

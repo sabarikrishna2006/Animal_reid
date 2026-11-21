@@ -1,0 +1,12 @@
+{
+  "blend": [
+    "dev_pipeline/test_probs.pkl",
+    "submissions/sub_20261121-075343_sub_v8_mix_lnb.probs.pkl"
+  ],
+  "w": 0.5,
+  "frac_new_at_rank1": {
+    "hyena": 0.39194741166803615,
+    "leopard": 0.4161372299872935
+  },
+  "seconds": 0.4641106128692627
+}

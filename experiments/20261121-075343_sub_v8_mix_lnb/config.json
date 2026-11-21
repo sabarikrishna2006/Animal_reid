@@ -1,0 +1,77 @@
+{
+  "exp_slug": "v8_mix_lnb",
+  "seed": 2026,
+  "paths": {
+    "raw": "data/reid_student_data_main",
+    "sift_train_dir": "data/sift_features_train.npz",
+    "sift_test_dir": "data/sift_features_test.npz",
+    "cache": "data/cache",
+    "experiments": "experiments",
+    "submissions": "submissions",
+    "lnbnn": "data/cache/lnbnn"
+  },
+  "cv": {
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "enc_thr": 0.2,
+    "p_move": {
+      "hyena": 0.3,
+      "leopard": 0.25
+    },
+    "f_new_id": {
+      "hyena": 0.15,
+      "leopard": 0.4
+    },
+    "max_new_id_size": 40
+  },
+  "retrieval": {
+    "embedding": "l2",
+    "n_cand": 30,
+    "tau": {
+      "hyena": 0.49,
+      "leopard": 0.52
+    },
+    "lnbnn": true
+  },
+  "sift": {
+    "ratio": 0.8,
+    "ransac_frac": 0.02,
+    "top_ids": 15,
+    "imgs_per_id": 8,
+    "graph_k": 10,
+    "workers": 10
+  },
+  "model": {
+    "enabled": false,
+    "methods": [
+      "softmax"
+    ],
+    "final_method": "softmax",
+    "extra_cv": "configs/exp_v3_sift_lnb.json"
+  },
+  "transductive": {
+    "enabled": true,
+    "features": true,
+    "consensus": false,
+    "alphas": [
+      0.0,
+      0.4,
+      0.6,
+      0.8,
+      0.9,
+      0.95
+    ],
+    "tau_e": [
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7
+    ]
+  }
+}

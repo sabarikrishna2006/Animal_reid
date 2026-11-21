@@ -12,3 +12,7 @@ __pycache__/
 *.pdf
 # large per-run logs are fine to keep, but not raw OOF arrays
 experiments/*/oof.npz
+# dev_pipeline run outputs (caches, logs, csv written next to the notebook)
+dev_pipeline/lnbnn/
+dev_pipeline/*.log
+dev_pipeline/*.csv
