@@ -5,27 +5,27 @@ Course competition (Problem 3): for each test image, rank up to 5 labels (a trai
 before changing anything** (allowed libraries, cv2 restrictions, no images, submissions only via the script).
 
 ## Final submission
-**`submissions/sub_20261121-110036_sub_team_blend_lnb2.csv`: public LB 0.86164** (best; submitted to Kaggle as `sub_team_blend_lnb2.csv`, produced by
-`03_make_submission.py --blend`). Second selected: `sub_team_blend_lnb.csv` (0.86073).
-It is a 50/50 average of the calibrated label probabilities of two independent pipelines, both with LNBNN keypoint
-features: this repo's `configs/exp_v8_mix_lnb.json` and `dev_pipeline/` (Dev's notebook). Full write-up (method,
-validation, results, rules compliance): **[`reports/final_report.md`](reports/final_report.md)**. Reproduction steps:
-section *Reproduce the final submission* below.
+**`submissions/sub_20261121-160242_sub_team_blend_lnb3.csv`: public LB 0.86515** (best; submitted to Kaggle as `sub_team_blend_lnb3.csv`, produced by
+`03_make_submission.py --blend`). Second selected: `sub_team_blend_lnb2.csv` (0.86164).
+It is a 50/50 average of the calibrated label probabilities of two independent pipelines: this repo's
+`configs/exp_v8_mix_lnb_kpg.json` (v8 + LNBNN features + keypoint query graph) and `dev_pipeline/` (Dev's notebook,
+with LNBNN). Full write-up (method, validation, results, overfitting check, rules compliance):
+**[`reports/final_report.md`](reports/final_report.md)**. Reproduction steps: *Reproduce the final submission* below.
 
 | Component | Validation MAP@5 | Public LB |
 |---|---|---|
-| `exp_v8_mix_lnb` (this repo) | 0.9145 (CV v1) | - |
-| `dev_pipeline` notebook | 0.8583 (Dev's CV) | - |
-| **50/50 blend = final** | 0.8675 (shared CV, before LNBNN in v8) | **0.86164** |
+| `exp_v8_mix` -> `+ LNBNN` -> `+ keypoint query graph` (this repo) | 0.9131 -> 0.9145 -> **0.9176** (CV v1, 5/5 splits) | - |
+| `dev_pipeline` notebook (with LNBNN) | 0.8532 -> **0.8583** (Dev's CV, 8/8 splits) | - |
+| **50/50 blend = final** | - | **0.86515** |
 
 ## Repository layout
 | Path | What |
 |---|---|
-| `src/reid/` | pipeline package (splits, retrieval, SIFT matching, **lnbnn**, candidates, models, calibration, transductive, decision) |
+| `src/reid/` | pipeline package (splits, retrieval, SIFT matching, **lnbnn**, **kpgraph**, candidates, models, calibration, transductive, decision) |
 | `scripts/` | `00_audit` -> `04_build_lnbnn` -> `02_run_cv` / `03_make_submission` (also `--blend`), plus diagnostics |
-| `configs/` | one JSON per experiment; final: `exp_v8_mix_lnb.json` (+ `exp_v3_sift_lnb.json` for its extra training design) |
+| `configs/` | one JSON per experiment; final: `exp_v8_mix_lnb_kpg.json` (+ `exp_v3_sift_lnb.json` for its extra training design) |
 | `dev_pipeline/` | Dev's self-contained notebook (second half of the blend) |
-| `submissions/` | every submitted CSV; final = `sub_20261121-110036_sub_team_blend_lnb2.csv` |
+| `submissions/` | every submitted CSV; final = `sub_20261121-160242_sub_team_blend_lnb3.csv` |
 | `experiments/` | registry + per-run configs/metrics |
 | `reports/` | `final_report.md`, EDA and gate reports |
 
@@ -43,8 +43,9 @@ section *Reproduce the final submission* below.
 | `sub_team_blend_prior.csv` | same, P(new) of each model prior-shifted to 31 % before averaging | — | 0.85504 |
 | `sub_team_blend_v2b.csv` / `_v2.csv` | blend weights tuned on a shared validation (v2: Sabari model retrained on Dev's splits) | shared CV 0.8675 | 0.85698 / 0.85538 |
 | `sub_team_blend_lnb.csv` | **Dev's model + LNBNN features** (see below), 50/50 with original v8 | shared CV 0.8675 | **0.86073** |
-| **`sub_team_blend_lnb2.csv`** | **both models + LNBNN** (`exp_v8_mix_lnb` 50/50 with Dev's LNBNN model) — **FINAL** | v8_lnb CV v1 0.9145 | **0.86164 (best)** |
+| `sub_team_blend_lnb2.csv` | both models + LNBNN (`exp_v8_mix_lnb` 50/50 with Dev's LNBNN model) | v8_lnb CV v1 0.9145 | 0.86164 |
 | `sub_team_blend_pseudo.csv` | lnb2 + self-training (confident test images added to the gallery) | sim. +0.0025 | 0.85829 (dropped) |
+| **`sub_team_blend_lnb3.csv`** | **lnb2 + keypoint query graph in the label propagation** (`exp_v8_mix_lnb_kpg`) — **FINAL** | CV v1 0.9176 | **0.86515 (best)** |
 
 Read it carefully:
 - CV v1 overestimates the LB by about 0.06–0.08 but **ranked the methods correctly** (baseline < final on both).
@@ -93,11 +94,19 @@ are masked at scoring time (CV stays honest). Features: `lnb`, `lnb_rank`, `lnb_
 `q_lnb_log_max`. Effect: Dev's model 0.8532 -> 0.8583 (shared CV, 8/8 splits); v8 0.9131 -> 0.9145 (CV v1); public LB
 0.85813 -> 0.86073 -> 0.86164. Classical NN keypoint matching of the provided descriptors (allowed; Crall et al. 2013).
 
-### Reproduce the final submission (`sub_team_blend_lnb2.csv`)
+### Keypoint query graph (`transductive.kp_graph = true`)
+Label propagation originally linked each query only to its 10 MiewID-cosine neighbours. `src/reid/kpgraph.py` matches
+every query image's RootSIFT descriptors against the other query images of the same fold (faiss-cpu, LNBNN-style votes)
+and adds each image's 5 strongest keypoint neighbours as extra candidate edges, plus 3 pair features (`kp_qq`,
+`kp_qq_sym`, `kp_qq_rank`). The existing pair model (OOF AUC 0.974 -> 0.981) decides which edges to keep. On leopards
+~25 % of the new links are the same animal (links that MiewID misses). CV v1 0.9145 -> 0.9176 (5/5 splits);
+public LB of the team blend 0.86164 -> 0.86515. Transductive and label-free (test features only).
+
+### Reproduce the final submission (`sub_team_blend_lnb3.csv`)
 ```
 py scripts/00_audit.py
 py scripts/04_build_lnbnn.py                                     # or copy Dev's lnbnn/ cache into data/cache/lnbnn
-py scripts/03_make_submission.py --config configs/exp_v8_mix_lnb.json      # also builds the extra_cv tables; -> sub_<id>.probs.pkl
+py scripts/03_make_submission.py --config configs/exp_v8_mix_lnb_kpg.json  # also builds the extra_cv tables; -> sub_<id>.probs.pkl
 # run dev_pipeline/wildlife_reid_solution.ipynb (from dev_pipeline/) -> dev_pipeline/test_probs.pkl
 py scripts/03_make_submission.py --blend dev_pipeline/test_probs.pkl submissions/sub_<id>.probs.pkl --w 0.5
 ```

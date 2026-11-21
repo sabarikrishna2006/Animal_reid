@@ -18,7 +18,7 @@ Run it from this folder; it finds the competition files under the repository's `
 Honest CV MAP@5: 0.8532 without LNBNN, **0.8583 with LNBNN**. Outputs: `submission.csv` (this model alone) and
 `test_probs.pkl` ({test_id: {label: probability}}), the input of the final blend:
 ```
-py scripts/03_make_submission.py --blend dev_pipeline/test_probs.pkl submissions/sub_<v8_mix_lnb>.probs.pkl --w 0.5
+py scripts/03_make_submission.py --blend dev_pipeline/test_probs.pkl submissions/sub_<v8_mix_lnb_kpg>.probs.pkl --w 0.5
 ```
 Section 6b (self-training with pseudo-labelled test images) is kept for reference but switched off
-(`SELF_TRAIN = False`): it scored lower on the public leaderboard (0.85829 vs 0.86164).
+(`SELF_TRAIN = False`): it scored lower on the public leaderboard (0.85829 vs 0.86164 for the same blend without it).

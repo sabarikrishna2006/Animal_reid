@@ -48,3 +48,5 @@ exp_id,date,parent_exp,change,cv_mean,cv_std,map_hyena,map_leopard,known_map,new
 20261121-072020_sub_v8_mix_plain_here,20261121,,SUBMISSION -> sub_20261121-072020_sub_v8_mix_plain_here.csv,0.91309,,,,,,,,
 20261121-075343_sub_v8_mix_lnb,20261121,,SUBMISSION -> sub_20261121-075343_sub_v8_mix_lnb.csv,0.91448,,,,,,,,
 20261121-110036_sub_team_blend_lnb2,20261121,,SUBMISSION -> sub_20261121-110036_sub_team_blend_lnb2.csv,nan,,,,,,,,
+20261121-142356_sub_v8_mix_lnb_kpg,20261121,,SUBMISSION -> sub_20261121-142356_sub_v8_mix_lnb_kpg.csv,0.91759,,,,,,,,
+20261121-160242_sub_team_blend_lnb3,20261121,,SUBMISSION -> sub_20261121-160242_sub_team_blend_lnb3.csv,nan,,,,,,,,
