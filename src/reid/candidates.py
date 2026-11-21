@@ -256,6 +256,9 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
             nbbest.append(float(np.max(np.minimum(w, M["l2"][nb, c]))) if len(nb) else np.nan)
         df["tr_vote"] = vote; df["tr_nb_score"] = nbbest
         df["tr_nb_minus_max"] = df.tr_nb_score - df.max_l2
+    if ctx.cfg["retrieval"].get("lnbnn", False):
+        from .lnbnn import add_features
+        df = add_features(df, fold, ctx, idx.ids)
     df["query_id"] = fold.query_ids[df.qi.values]
     df["cand_id"] = idx.ids[df.cand.values]
     df["species_is_leo"] = int(fold.species == "leopard")
