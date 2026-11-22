@@ -70,6 +70,42 @@ def vp_compat(Zg, labels, vps):
     return out
 
 
+def k_reciprocal_rerank(Zq, Zg, k1=20, k2=6, lam=0.3):
+    """Classical k-reciprocal Jaccard re-ranking (Zhong et al. CVPR 2017) on cosine distances (unsupervised)."""
+    nq, ng = len(Zq), len(Zg)
+    Z = np.vstack([Zq, Zg]).astype(np.float32)
+    N = len(Z)
+    orig_dist = np.clip(2.0 - 2.0 * (Z @ Z.T), 0.0, 4.0)
+    orig_dist = orig_dist / np.maximum(orig_dist.max(axis=1, keepdims=True), 1e-6)
+    initial_rank = np.argsort(orig_dist, axis=1).astype(np.int32)
+    V = np.zeros((N, N), dtype=np.float32)
+    hk = int(round(k1 / 2)) + 1
+    for i in range(N):
+        fwd = initial_rank[i, :k1 + 1]
+        bwd = initial_rank[fwd, :k1 + 1]
+        k_recip = fwd[np.where(bwd == i)[0]]
+        k_recip_exp = k_recip
+        for cand in k_recip:
+            cfwd = initial_rank[cand, :hk]
+            cbwd = initial_rank[cfwd, :hk]
+            c_recip = cfwd[np.where(cbwd == cand)[0]]
+            if len(np.intersect1d(c_recip, k_recip)) > (2.0 / 3.0) * len(c_recip):
+                k_recip_exp = np.append(k_recip_exp, c_recip)
+        k_recip_exp = np.unique(k_recip_exp)
+        w = np.exp(-orig_dist[i, k_recip_exp])
+        V[i, k_recip_exp] = w / np.maximum(w.sum(), 1e-6)
+    if k2 > 1:
+        V = np.array([V[initial_rank[i, :k2]].mean(axis=0) for i in range(N)], dtype=np.float32)
+    Vq, Vg = V[:nq], V[nq:]
+    jaccard = np.ones((nq, ng), dtype=np.float32)
+    for i in range(nq):
+        nz = np.nonzero(Vq[i])[0]
+        if len(nz):
+            mn = np.minimum(Vq[i, nz][None, :], Vg[:, nz]).sum(axis=1)
+            jaccard[i] = 1.0 - mn / (2.0 - mn)
+    return 1.0 - ((1.0 - lam) * jaccard + lam * orig_dist[:nq, nq:])
+
+
 def sift_pairs_for_fold(fold, ctx, n_cand_sift=None, per_id=None):
     """Pairs (query_row, gallery_row) needed for SIFT features, chosen from fold-legal info only."""
     cfg = ctx.cfg["sift"]
@@ -80,12 +116,23 @@ def sift_pairs_for_fold(fold, ctx, n_cand_sift=None, per_id=None):
     M = idx.max(S)
     M2 = (ctx.emb["pcaw"][fold.query_rows] @ ctx.emb["pcaw"][fold.gallery_rows].T)
     M2 = idx.max(M2)
+    lnb_k = int(ctx.cfg["retrieval"].get("lnbnn_cand", 0))
+    Lim, ImgMat = (None, None)
+    if lnb_k > 0:
+        from .lnbnn import fold_img_scores
+        Lim, ImgMat = fold_img_scores(fold, ctx, idx.ids)
     pairs = []
     for i in range(len(Zq)):
         r1 = np.argsort(-M[i])[:n_cand_sift]; r2 = np.argsort(-M2[i])[:n_cand_sift]
-        for c in np.union1d(r1, r2):
+        cset = np.union1d(r1, r2)
+        if Lim is not None:
+            cset = np.union1d(cset, np.argsort(-Lim[i])[:lnb_k])
+        for c in cset:
             cols = idx.order[idx.starts[c]: idx.starts[c] + idx.counts[c]]
             best = cols[np.argsort(-S[i, cols])[:per_id]]
+            if ImgMat is not None:
+                best_l = cols[np.argsort(-ImgMat[i, cols])[:2]]
+                best = np.union1d(best, best_l)
             pairs += [(fold.query_rows[i], fold.gallery_rows[j]) for j in best]
     return pairs
 
@@ -181,9 +228,31 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
     sift_on = ctx.pc is not None
     sift_top = ctx.cfg["sift"]["top_ids"]; per_id = ctx.cfg["sift"]["imgs_per_id"]
     ii = SF.index
+    lnb_k = int(ctx.cfg["retrieval"].get("lnbnn_cand", 0))
+    Lim, ImgMat = (None, None)
+    if lnb_k > 0:
+        from .lnbnn import fold_img_scores
+        Lim, ImgMat = fold_img_scores(fold, ctx, idx.ids)
+    KREC = {}
+    if ctx.cfg["retrieval"].get("krec", False):
+        for e in ("l2", "lda"):
+            Kr = k_reciprocal_rerank(Z[e][0], Z[e][1], k1=20, k2=6, lam=0.3)
+            Mk = idx.max(Kr)
+            srtk = -np.sort(-Mk, axis=1)
+            KREC[e] = (Mk, srtk[:, 0], srtk[:, 0] - srtk[:, 1])
+            qf[f"q_krec_{e}_max"] = srtk[:, 0]
+            qf[f"q_krec_{e}_gap"] = srtk[:, 0] - srtk[:, 1]
     for i in range(nq):
-        cands = np.argsort(comb[i])[:n_cand]
+        cands = list(np.argsort(comb[i])[:n_cand])
+        if Lim is not None:
+            cset_now = set(cands)
+            for c_extra in np.argsort(-Lim[i])[:lnb_k]:
+                if int(c_extra) not in cset_now:
+                    cands.append(int(c_extra)); cset_now.add(int(c_extra))
+        cands = np.array(cands, dtype=int)
         r1 = set(np.argsort(-M["l2"][i])[:sift_top]) | set(np.argsort(-M["pcaw"][i])[:sift_top])
+        if Lim is not None:
+            r1 |= set(int(x) for x in np.argsort(-Lim[i])[:lnb_k])
         for c in cands:
             row = {"qi": i, "cand": c}
             for e in EMBS:
@@ -191,6 +260,9 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
                 row[f"rank_{e}"] = rank[e][i, c]
                 row[f"gap_{e}"] = M[e][i, c] - qf[f"q_top1_{e}"][i]
                 row[f"z_{e}"] = (M[e][i, c] - qf[f"q_mean10_{e}"][i]) / (qf[f"q_std10_{e}"][i] + 1e-6)
+            for e, (Mk, m1, _) in KREC.items():
+                row[f"krec_{e}"] = Mk[i, c]
+                row[f"krec_{e}_gap"] = Mk[i, c] - m1[i]
             row["comb_rank"] = int(np.where(cands == c)[0][0])
             for e in PROF:
                 row[f"prof_{e}"] = PROF[e][i, c]
@@ -216,6 +288,8 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
             if sift_on:
                 if c in r1:
                     best = cols[np.argsort(-S["l2"][i, cols])[:per_id]]
+                    if ImgMat is not None:
+                        best = np.union1d(best, cols[np.argsort(-ImgMat[i, cols])[:2]])
                     F = np.array([ctx.pc.get(qr[i], gr[j]) for j in best], dtype=np.float32)
                     inl = np.nan_to_num(F[:, ii("inl_aff")], nan=-1)
                     k2 = np.argsort(-inl)

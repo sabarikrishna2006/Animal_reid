@@ -1,0 +1,12 @@
+{
+  "blend": [
+    "dev_pipeline/test_probs_lnb_img_kpg_prop.pkl",
+    "submissions/sub_20261122-155236_sub_v9_mix_lnbimg_kpg.probs.pkl"
+  ],
+  "w": 0.5,
+  "public_lb": 0.86749,
+  "frac_new_at_rank1": {
+    "hyena": 0.3763,
+    "leopard": 0.4307
+  }
+}

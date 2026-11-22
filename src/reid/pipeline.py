@@ -102,7 +102,9 @@ def query_table(df, pcol="p"):
     q["n_p10"] = g[pcol].apply(lambda s: (s > 0.1).sum())
     top = df.loc[g[pcol].idxmax()].set_index("_key")
     for c in ("max_same_side", "has_same_side", "compat_best", "max_minus_compat", "recip_rank", "log_nimg",
-              "max_opp_side", "sift_inl_max", "z_pcaw", "z_l2", "z_lda"):
+              "max_opp_side", "sift_inl_max", "z_pcaw", "z_l2", "z_lda",
+              "lnb_img", "lnb_img_rel", "lnb_img_share", "lnb_k3", "lnb_log", "lnb_rel",
+              "krec_l2", "krec_lda"):
         if c in top:
             q[f"top_{c}"] = top[c]
     for c in first.columns:

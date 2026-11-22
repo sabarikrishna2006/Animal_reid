@@ -5,18 +5,17 @@ Course competition (Problem 3): for each test image, rank up to 5 labels (a trai
 before changing anything** (allowed libraries, cv2 restrictions, no images, submissions only via the script).
 
 ## Final submission
-**`submissions/sub_20261121-160242_sub_team_blend_lnb3.csv`: public LB 0.86515** (best; submitted to Kaggle as `sub_team_blend_lnb3.csv`, produced by
-`03_make_submission.py --blend`). Second selected: `sub_team_blend_lnb2.csv` (0.86164).
+**`submissions/sub_20261122-171705_sub_team_blend_lnb7.csv`: public LB 0.88073** (best; submitted to Kaggle as `sub_team_blend_lnb7.csv`, produced by
+`03_make_submission.py --blend`). Second selected: `sub_team_blend_lnb6.csv` (0.86749).
 It is a 50/50 average of the calibrated label probabilities of two independent pipelines: this repo's
-`configs/exp_v8_mix_lnb_kpg.json` (v8 + LNBNN features + keypoint query graph) and `dev_pipeline/` (Dev's notebook,
-with LNBNN). Full write-up (method, validation, results, overfitting check, rules compliance):
-**[`reports/final_report.md`](reports/final_report.md)**. Reproduction steps: *Reproduce the final submission* below.
+`configs/exp_v10_lnbcand_krec.json` (v8 + image-level & strict K=3 LNBNN + `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal re-ranking + keypoint query graph) and `dev_pipeline/` (Dev's pipeline with image-level & K=3 LNBNN + keypoint query graph + Zhou propagation). Full write-up (method, validation, results, overfitting check, rules compliance):
+**[`reports/final_report.md`](reports/final_report.md)**. Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**.
 
 | Component | Validation MAP@5 | Public LB |
 |---|---|---|
-| `exp_v8_mix` -> `+ LNBNN` -> `+ keypoint query graph` (this repo) | 0.9131 -> 0.9145 -> **0.9176** (CV v1, 5/5 splits) | - |
-| `dev_pipeline` notebook (with LNBNN) | 0.8532 -> **0.8583** (Dev's CV, 8/8 splits) | - |
-| **50/50 blend = final** | - | **0.86515** |
+| `exp_v8_mix` -> `+ LNBNN` -> `+ kpgraph` -> `+ lnb_img/K=3 (v9)` -> `+ lnb_img cand/SIFT + k-recip (v10)` | 0.9131 -> 0.9145 -> 0.9176 -> 0.9194 -> **0.9207** (CV v1) | - |
+| `dev_pipeline` (`+ LNBNN` -> `+ lnb_img/K=3 + kpgraph + prop`) | 0.8575 -> **0.8715** (Dev's leak-free CV, 8/8 splits) | - |
+| **50/50 blend = final (`lnb7`)** | **0.8764** (shared CV with Dev upgraded) | **0.88073** |
 
 ## Repository layout
 | Path | What |
@@ -45,7 +44,9 @@ with LNBNN). Full write-up (method, validation, results, overfitting check, rule
 | `sub_team_blend_lnb.csv` | **Dev's model + LNBNN features** (see below), 50/50 with original v8 | shared CV 0.8675 | **0.86073** |
 | `sub_team_blend_lnb2.csv` | both models + LNBNN (`exp_v8_mix_lnb` 50/50 with Dev's LNBNN model) | v8_lnb CV v1 0.9145 | 0.86164 |
 | `sub_team_blend_pseudo.csv` | lnb2 + self-training (confident test images added to the gallery) | sim. +0.0025 | 0.85829 (dropped) |
-| **`sub_team_blend_lnb3.csv`** | **lnb2 + keypoint query graph in the label propagation** (`exp_v8_mix_lnb_kpg`) — **FINAL** | CV v1 0.9176 | **0.86515 (best)** |
+| `sub_team_blend_lnb3.csv` | lnb2 + keypoint query graph in label propagation (`exp_v8_mix_lnb_kpg`) | CV v1 0.9176 | 0.86515 |
+| `sub_team_blend_lnb6.csv` | both pipelines + image-level & strict K=3 LNBNN + Dev keypoint graph + Zhou prop (`exp_v9_mix_lnbimg_kpg`) | CV v1 0.9194 / shared CV 0.8764 | 0.86749 |
+| **`sub_team_blend_lnb7.csv`** | **+ `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal re-ranking (`exp_v10_lnbcand_krec`) — FINAL** | **CV v1 0.9207** | **0.88073 (best)** |
 
 Read it carefully:
 - CV v1 overestimates the LB by about 0.06–0.08 but **ranked the methods correctly** (baseline < final on both).
