@@ -5,11 +5,13 @@ import sys
 
 ALLOWED_THIRD_PARTY = {"numpy", "pandas", "scipy", "sklearn", "statsmodels", "imblearn", "xgboost",
                        "lightgbm", "catboost", "networkx", "cv2", "faiss", "matplotlib", "seaborn"}
-LOCAL = {"reid", "src", "scripts", "tests", "check_compliance"}
+LOCAL = {"reid", "src", "scripts", "tests", "check_compliance",
+         "core", "lnbnn", "features", "model2", "exp_kpg", "exp_kpg_v2",
+         "exp_lnb_img", "exp_blend_check", "make_kpg_probs", "make_dev_bgclean"}
 CV2_ALLOWED = {"BFMatcher", "BFMatcher_create", "FlannBasedMatcher", "DMatch", "NORM_L2",
                "findHomography", "estimateAffinePartial2D", "estimateAffine2D", "findFundamentalMat",
                "perspectiveTransform", "transform", "RANSAC", "USAC_MAGSAC", "USAC_DEFAULT", "LMEDS",
-               "setNumThreads", "__version__"}
+               "setNumThreads", "setRNGSeed", "__version__"}
 STDLIB = set(sys.stdlib_module_names)
 FORBIDDEN_STDLIB_LIKE = {"joblib"}  # not stdlib anyway; listed for clarity
 
