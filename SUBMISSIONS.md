@@ -19,3 +19,6 @@ Every official Kaggle submission is tagged in Git with a unique version ID and s
 | `sub-v12-2026-11-22-blend-lnb10` | 2026-11-22 | `sub_team_blend_lnb10.csv` | — | 0.87794 | Lokesh | Early `v10` + `lnb_img` blend iteration (dropped) |
 | `sub-v13-2026-11-22-blend-lnb11` | 2026-11-22 | `sub_team_blend_lnb11.csv` | — | 0.88034 | Lokesh | `nprobe=64` LNBNN + `lnb_uimg` background-keypoint filtering test |
 | `sub-v14-2026-11-22-blend-lnb12` | 2026-11-22 | `sub_team_blend_lnb12.csv` | — | 0.87778 | Lokesh | Alternative `lnb_img` weighting / threshold test (dropped) |
+
+| `sub-v15-2026-11-23-blend-lnb15` | 2026-11-23 | `sub_team_blend_lnb15.csv` | — | 0.87820 | Lokesh | Early SIFT geometry / weighting ablation (dropped) |
+| `sub-v16-2026-11-23-blend-lnb16` | 2026-11-23 | `sub_team_blend_lnb16.csv` | — | 0.87976 | Lokesh | `bg_clean` + `nprobe=64` LNBNN ensemble iteration |

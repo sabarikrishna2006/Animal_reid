@@ -70,6 +70,32 @@ def vp_compat(Zg, labels, vps):
     return out
 
 
+def manifold_diffusion(Zq, Zg, k=20, alpha=0.85, gamma=3.0, iters=25):
+    """Iscen et al. CVPR 2017 manifold diffusion on [Zq; Zg] cosine kNN graph (unsupervised, zero labels)."""
+    import scipy.sparse as sp
+    nq, ng = len(Zq), len(Zg)
+    Z = np.vstack([Zq, Zg]).astype(np.float32)
+    N = len(Z)
+    S = np.clip(Z @ Z.T, 0.0, 1.0)
+    np.fill_diagonal(S, 0.0)
+    kk = min(k, N - 1)
+    top = np.argpartition(-S, kk, axis=1)[:, :kk]
+    rows = np.repeat(np.arange(N), kk)
+    cols = top.ravel()
+    vals = (S[rows, cols] ** gamma).astype(np.float32)
+    W = sp.coo_matrix((vals, (rows, cols)), shape=(N, N)).tocsr()
+    W = 0.5 * (W + W.T)
+    d = np.asarray(W.sum(1)).ravel()
+    dinv = np.where(d > 0, 1.0 / np.sqrt(np.maximum(d, 1e-12)), 0.0)
+    Sn = sp.diags(dinv) @ W @ sp.diags(dinv)
+    Y = np.zeros((N, nq), dtype=np.float32)
+    Y[np.arange(nq), np.arange(nq)] = 1.0
+    F = Y.copy()
+    for _ in range(iters):
+        F = alpha * (Sn @ F) + (1.0 - alpha) * Y
+    return F[nq:, :].T
+
+
 def k_reciprocal_rerank(Zq, Zg, k1=20, k2=6, lam=0.3):
     """Classical k-reciprocal Jaccard re-ranking (Zhong et al. CVPR 2017) on cosine distances (unsupervised)."""
     nq, ng = len(Zq), len(Zg)
@@ -131,7 +157,8 @@ def sift_pairs_for_fold(fold, ctx, n_cand_sift=None, per_id=None):
             cols = idx.order[idx.starts[c]: idx.starts[c] + idx.counts[c]]
             best = cols[np.argsort(-S[i, cols])[:per_id]]
             if ImgMat is not None:
-                best_l = cols[np.argsort(-ImgMat[i, cols])[:2]]
+                k_im = int(ctx.cfg["retrieval"].get("lnbnn_sift_imgs", 2))
+                best_l = cols[np.argsort(-ImgMat[i, cols])[:k_im]]
                 best = np.union1d(best, best_l)
             pairs += [(fold.query_rows[i], fold.gallery_rows[j]) for j in best]
     return pairs
@@ -242,6 +269,31 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
             KREC[e] = (Mk, srtk[:, 0], srtk[:, 0] - srtk[:, 1])
             qf[f"q_krec_{e}_max"] = srtk[:, 0]
             qf[f"q_krec_{e}_gap"] = srtk[:, 0] - srtk[:, 1]
+    DIFF, CLS = {}, {}
+    if ctx.cfg["retrieval"].get("diff_cls", False):
+        for e in ("l2", "lda"):
+            Dr = manifold_diffusion(Z[e][0], Z[e][1], k=20, alpha=0.85, gamma=3.0)
+            Md = idx.max(Dr)
+            srtd = -np.sort(-Md, axis=1)
+            DIFF[e] = (Md, srtd[:, 0])
+            qf[f"q_diff_{e}_max"] = srtd[:, 0]
+            qf[f"q_diff_{e}_gap"] = srtd[:, 0] - srtd[:, 1]
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.neural_network import MLPClassifier
+        zq_l2, zg_l2 = Z["l2"]
+        mu_g = zg_l2.mean(0)
+        cg_c = l2n(zg_l2 - mu_g); cq_c = l2n(zq_l2 - mu_g)
+        lr = LogisticRegression(C=30.0, max_iter=500, solver="lbfgs").fit(cg_c, idx.inv)
+        Plr = lr.predict_log_proba(cq_c).astype(np.float32)
+        slr = -np.sort(-Plr, axis=1)
+        CLS["lr"] = (Plr, slr[:, 0])
+        qf["q_lr_max"] = slr[:, 0]; qf["q_lr_gap"] = slr[:, 0] - slr[:, 1]
+        mlp = MLPClassifier(hidden_layer_sizes=(256,), alpha=1e-2, max_iter=150,
+                            early_stopping=True, validation_fraction=0.1, random_state=0).fit(cg_c, idx.inv)
+        Pmlp = np.log(np.clip(mlp.predict_proba(cq_c), 1e-7, 1.0)).astype(np.float32)
+        smlp = -np.sort(-Pmlp, axis=1)
+        CLS["mlp"] = (Pmlp, smlp[:, 0])
+        qf["q_mlp_max"] = smlp[:, 0]; qf["q_mlp_gap"] = smlp[:, 0] - smlp[:, 1]
     for i in range(nq):
         cands = list(np.argsort(comb[i])[:n_cand])
         if Lim is not None:
@@ -263,6 +315,12 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
             for e, (Mk, m1, _) in KREC.items():
                 row[f"krec_{e}"] = Mk[i, c]
                 row[f"krec_{e}_gap"] = Mk[i, c] - m1[i]
+            for e, (Md, m1) in DIFF.items():
+                row[f"diff_{e}"] = Md[i, c]
+                row[f"diff_{e}_gap"] = Md[i, c] - m1[i]
+            for e, (Pc, m1) in CLS.items():
+                row[f"cls_{e}"] = Pc[i, c]
+                row[f"cls_{e}_gap"] = Pc[i, c] - m1[i]
             row["comb_rank"] = int(np.where(cands == c)[0][0])
             for e in PROF:
                 row[f"prof_{e}"] = PROF[e][i, c]
@@ -289,7 +347,8 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
                 if c in r1:
                     best = cols[np.argsort(-S["l2"][i, cols])[:per_id]]
                     if ImgMat is not None:
-                        best = np.union1d(best, cols[np.argsort(-ImgMat[i, cols])[:2]])
+                        k_im = int(ctx.cfg["retrieval"].get("lnbnn_sift_imgs", 2))
+                        best = np.union1d(best, cols[np.argsort(-ImgMat[i, cols])[:k_im]])
                     F = np.array([ctx.pc.get(qr[i], gr[j]) for j in best], dtype=np.float32)
                     inl = np.nan_to_num(F[:, ii("inl_aff")], nan=-1)
                     k2 = np.argsort(-inl)
@@ -305,6 +364,14 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
                     row["sift_sim_best"] = fb[ii("inl_sim")]; row["sift_spread_best"] = fb[ii("spread_min")]
                     row["sift_rot_best"] = fb[ii("abs_rot")]; row["sift_scale_best"] = fb[ii("log_scale")]
                     row["sift_kpmin_best"] = fb[ii("kp_min")]
+                    if ctx.cfg["retrieval"].get("bg_clean", False):
+                        rot_v = np.nan_to_num(F[:, ii("abs_rot")], nan=99.0)
+                        spr_v = np.nan_to_num(F[:, ii("spread_min")], nan=1.0)
+                        is_bg = (rot_v < 0.50) & (spr_v < 0.25)
+                        inl_c = np.where(is_bg, 0.0, np.nan_to_num(F[:, ii("inl_aff")], nan=-1.0))
+                        row["sift_inl_clean"] = float(inl_c.max()) if (inl_c >= 0).any() else np.nan
+                        row["sift_n6_clean"] = float((inl_c >= 6).sum())
+                        row["sift_best_is_bg"] = float(is_bg[k2[0]])
                 else:
                     row["sift_checked"] = 0
             rows.append(row)
@@ -318,6 +385,9 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
         df["sift_inl_minus_qmax"] = df.sift_inl_max - df.q_sift_inl_max
         # second-best identity's inliers (for the P(new) model / margin features)
         df["sift_inl_rank"] = g.sift_inl_max.rank(ascending=False, method="min")
+        if ctx.cfg["retrieval"].get("bg_clean", False):
+            df["q_sift_inl_clean_max"] = g.sift_inl_clean.transform("max")
+            df["sift_inl_clean_minus_qmax"] = df.sift_inl_clean - df.q_sift_inl_clean_max
     if transductive:
         # neighbour votes: share of q's top-5 query neighbours (cos>0.5) whose top-1 identity (pcaw) is c,
         # and best (neighbour cos x neighbour's score for c)
