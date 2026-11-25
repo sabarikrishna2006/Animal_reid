@@ -15,3 +15,7 @@ Every official Kaggle submission is tagged in Git with a unique version ID and s
 | `sub-v09-2026-11-21-blend-pseudo` | 2026-11-21 | `sub_team_blend_pseudo.csv` | — | 0.85829 | Devyaansh | Self-training variant (dropped) |
 | `sub-v10-2026-11-22-blend-lnb6` | 2026-11-22 | `sub_team_blend_lnb6.csv` | `submissions/sub_20261122-155330_sub_team_blend_lnb6.csv` | 0.86749 | Devyaansh | Both pipelines + image-level & K=3 LNBNN + kpgraph + Zhou prop (`v9`) |
 | **`sub-v11-2026-11-22-blend-lnb7`** | **2026-11-22** | **`sub_team_blend_lnb7.csv`** | **`submissions/sub_20261122-171705_sub_team_blend_lnb7.csv`** | **0.88073** | **Devyaansh** | **+ `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal (`v10`)** |
+
+| `sub-v12-2026-11-22-blend-lnb10` | 2026-11-22 | `sub_team_blend_lnb10.csv` | — | 0.87794 | Lokesh | Early `v10` + `lnb_img` blend iteration (dropped) |
+| `sub-v13-2026-11-22-blend-lnb11` | 2026-11-22 | `sub_team_blend_lnb11.csv` | — | 0.88034 | Lokesh | `nprobe=64` LNBNN + `lnb_uimg` background-keypoint filtering test |
+| `sub-v14-2026-11-22-blend-lnb12` | 2026-11-22 | `sub_team_blend_lnb12.csv` | — | 0.87778 | Lokesh | Alternative `lnb_img` weighting / threshold test (dropped) |

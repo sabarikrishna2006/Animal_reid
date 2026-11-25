@@ -1,6 +1,6 @@
 """HotSpotter-style one-vs-many keypoint matching (LNBNN) on the provided SIFT descriptors (classical NN matching,
 faiss-cpu). Neighbour lists (k=50 per query descriptor, over all training descriptors of the species) are built once
-by scripts/04_build_lnbnn.py (or Dev's notebook, same format) and read from `paths.lnbnn` (default data/cache/lnbnn). Images outside the fold's gallery
+by Dev's lnbnn.py / notebook and read from `paths.lnbnn` (default data/cache/lnbnn). Images outside the fold's gallery
 and the query itself are masked at scoring time, so CV stays honest."""
 import json
 from pathlib import Path
@@ -71,6 +71,71 @@ class Scorer:
             np.add.at(out_k3, l1, np.maximum(bg3[r1] - d[r1, c1], 0.0))
         return (out_img, out_k3, img_sc) if want_img_sc else (out_img, out_k3)
 
+    def scores_uimg(self, qid, gmask):
+        """Camera-trap background-suppressed image-level LNBNN: for each descriptor, score gallery images of the
+        nearest identity (id1) by max(0, d_id2 - d) where d_id2 is the nearest DIFFERENT identity.
+        Background keypoints shared by >=2 identities get margin ~0; unique coat spots get huge margin."""
+        i = self.qpos[qid]; a, b = self.qoff[i], self.qoff[i + 1]
+        n_id, n_gal = len(self.names), len(self.gal)
+        out_uimg = np.zeros(n_id, np.float32)
+        if b == a:
+            return out_uimg
+        nb = np.asarray(self.NB[a:b]); d = np.asarray(self.DI[a:b], np.float32)
+        ok = (nb >= 0) & gmask[np.maximum(nb, 0)]
+        if qid in self.gpos:
+            ok &= nb != self.gpos[qid]
+        has1 = ok.any(1)
+        c1 = np.argmax(ok, 1)
+        rows_all = np.arange(len(d))
+        g1 = nb[rows_all, c1]
+        id1 = np.where(has1, self.lab[np.maximum(g1, 0)], -1)
+        lab_mat = self.lab[np.maximum(nb, 0)]
+        ok_diff = ok & (lab_mat != id1[:, None])
+        has2 = ok_diff.any(1)
+        d2 = np.where(has2, d[rows_all, np.argmax(ok_diff, 1)], d.max(1))
+        ok_same = ok & (lab_mat == id1[:, None]) & (d < d2[:, None])
+        rs, cs = np.nonzero(ok_same)
+        if len(rs):
+            gs = nb[rs, cs]
+            _, f_g = np.unique(rs.astype(np.int64) * n_gal + gs, return_index=True)
+            rs1, cs1, gs1 = rs[f_g], cs[f_g], gs[f_g]
+            img_u = np.zeros(n_gal, np.float32)
+            np.add.at(img_u, gs1, np.maximum(d2[rs1] - d[rs1, cs1], 0.0))
+            np.maximum.at(out_uimg, self.lab, img_u)
+        return out_uimg
+
+    def scores_rimg(self, qid, gmask, ratio=0.85):
+        """Strict cross-identity Lowe ratio image-level LNBNN (d < ratio * d_id2)."""
+        i = self.qpos[qid]; a, b = self.qoff[i], self.qoff[i + 1]
+        n_id, n_gal = len(self.names), len(self.gal)
+        out_rimg = np.zeros(n_id, np.float32)
+        if b == a:
+            return out_rimg
+        nb = np.asarray(self.NB[a:b]); d = np.asarray(self.DI[a:b], np.float32)
+        ok = (nb >= 0) & gmask[np.maximum(nb, 0)]
+        if qid in self.gpos:
+            ok &= nb != self.gpos[qid]
+        has1 = ok.any(1)
+        c1 = np.argmax(ok, 1)
+        rows_all = np.arange(len(d))
+        g1 = nb[rows_all, c1]
+        id1 = np.where(has1, self.lab[np.maximum(g1, 0)], -1)
+        lab_mat = self.lab[np.maximum(nb, 0)]
+        ok_diff = ok & (lab_mat != id1[:, None])
+        has2 = ok_diff.any(1)
+        c2 = np.argmax(ok_diff, 1)
+        d2 = np.where(has2, d[rows_all, c2], d.max(1))
+        ok_same = ok & (lab_mat == id1[:, None]) & (d < ratio * d2[:, None]) & has2[:, None]
+        rs, cs = np.nonzero(ok_same)
+        if len(rs):
+            gs = nb[rs, cs]
+            _, f_g = np.unique(rs.astype(np.int64) * n_gal + gs, return_index=True)
+            rs1, cs1, gs1 = rs[f_g], cs[f_g], gs[f_g]
+            img_r = np.zeros(n_gal, np.float32)
+            np.add.at(img_r, gs1, np.maximum(d2[rs1] - d[rs1, cs1], 0.0))
+            np.maximum.at(out_rimg, self.lab, img_r)
+        return out_rimg
+
 
 def scorer(ctx, sp):
     if sp not in _CACHE:
@@ -135,4 +200,15 @@ def add_features(df, fold, ctx, cand_ids):
         df["lnb_k3"] = vk
         df["lnb_k3_rel"] = np.where(mx_k[qi] > 0, vk / np.maximum(mx_k[qi], 1e-9), 0.0)
         df["q_lnb_k3_max"] = mx_k[qi]; df["q_lnb_k3_gap"] = (mx_k - sec_k)[qi]
+    if ctx.cfg["retrieval"].get("bg_clean", False):
+        col_idx = np.searchsorted(S.names, cand_ids)
+        Lu = np.stack([S.scores_uimg(q, gmask) for q in fold.query_ids])[:, col_idx]
+        mx_u = Lu.max(1); sec_u = -np.sort(-Lu, 1)[:, 1] if Lu.shape[1] > 1 else mx_u
+        rk_u = np.argsort(np.argsort(-Lu, 1), 1)
+        vu = Lu[qi, c]
+        df["lnb_uimg"] = vu; df["lnb_uimg_rank"] = rk_u[qi, c]
+        df["lnb_uimg_rel"] = np.where(mx_u[qi] > 0, vu / np.maximum(mx_u[qi], 1e-9), 0.0)
+        df["lnb_uimg_log"] = np.log1p(vu)
+        df["q_lnb_uimg_max"] = mx_u[qi]; df["q_lnb_uimg_gap"] = (mx_u - sec_u)[qi]
+        df["q_lnb_uimg_log_max"] = np.log1p(mx_u)[qi]
     return df
