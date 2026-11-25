@@ -22,3 +22,5 @@ Every official Kaggle submission is tagged in Git with a unique version ID and s
 
 | `sub-v15-2026-11-23-blend-lnb15` | 2026-11-23 | `sub_team_blend_lnb15.csv` | — | 0.87820 | Lokesh | Early SIFT geometry / weighting ablation (dropped) |
 | `sub-v16-2026-11-23-blend-lnb16` | 2026-11-23 | `sub_team_blend_lnb16.csv` | — | 0.87976 | Lokesh | `bg_clean` + `nprobe=64` LNBNN ensemble iteration |
+
+| **`sub-v17-2026-11-24-blend-lnb18`** | **2026-11-24** | **`sub_team_blend_lnb18_dualbg.csv`** | — | **0.88101** | **Lokesh** | **Dual-pipeline `bg_clean` (`nprobe=64` + `lnb_uimg` + `lnb_rimg`) + `conn_new_scale` isolated-node fix** |

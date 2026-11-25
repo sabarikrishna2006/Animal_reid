@@ -19,16 +19,69 @@ from scipy.special import logit, expit
 from . import NEW, SPECIES
 from .calibration import softmax_groups, shift_logit
 from .candidates import query_neighbour_pairs
-from .models import oof_predict, fit_full
+from .models import oof_predict, fit_full, predict_bag
 from .sift_match import FEATS as SF
 from .splits import test_fold
 
+EXPORT_CV = {}      # CV split -> query id -> {label: probability}
 EXPORT_PROBS = {}   # test query id -> {label: probability}, filled by apply_transductive
 
-KP_FEATS = ["kp_qq", "kp_qq_sym", "kp_qq_rank"]   # keypoint query-graph pair features (transductive.kp_graph)
+KP_FEATS = ["kp_qq", "kp_qq_sym", "kp_qq_rank"]
+SIFT_BG_FEATS = ["sift_rot", "sift_scale", "sift_is_bg", "sift_inl_clean"]
+RICH_FEATS = ["cos_lda_qq", "krec_qq_l2", "krec_qq_lda", "post_dot", "kp_qq_min", "kp_qq_log"]
 PAIR_FEATS = ["cos_l2", "cos_pcaw", "rank_ij", "rank_ji", "same_side", "opp_side", "kp_min", "dlognorm",
               "sift_inl", "sift_inl_strict", "sift_mutual", "sift_ratio", "sift_overkp", "sift_spread",
               "top1_same", "p1_min", "species_is_leo"]
+
+
+def _krec_qq(Zq, Zg, k1=20, k2=6, lam=0.3):
+    """Unsupervised k-reciprocal Jaccard similarity among queries (nq x nq) over [Zq; Zg]."""
+    nq = len(Zq)
+    Z = np.vstack([Zq, Zg]).astype(np.float32)
+    N = len(Z)
+    orig_dist = np.clip(2.0 - 2.0 * (Z @ Z.T), 0.0, 4.0)
+    orig_dist = orig_dist / np.maximum(orig_dist.max(axis=1, keepdims=True), 1e-6)
+    initial_rank = np.argsort(orig_dist, axis=1).astype(np.int32)
+    V = np.zeros((N, N), dtype=np.float32)
+    hk = int(round(k1 / 2)) + 1
+    for i in range(N):
+        fwd = initial_rank[i, :k1 + 1]
+        bwd = initial_rank[fwd, :k1 + 1]
+        k_recip = fwd[np.where(bwd == i)[0]]
+        k_recip_exp = k_recip
+        for cand in k_recip:
+            cfwd = initial_rank[cand, :hk]
+            cbwd = initial_rank[cfwd, :hk]
+            c_recip = cfwd[np.where(cbwd == cand)[0]]
+            if len(np.intersect1d(c_recip, k_recip)) > (2.0 / 3.0) * len(c_recip):
+                k_recip_exp = np.append(k_recip_exp, c_recip)
+        k_recip_exp = np.unique(k_recip_exp)
+        w = np.exp(-orig_dist[i, k_recip_exp])
+        V[i, k_recip_exp] = w / np.maximum(w.sum(), 1e-6)
+    if k2 > 1:
+        V = np.array([V[initial_rank[i, :k2]].mean(axis=0) for i in range(N)], dtype=np.float32)
+    Vq = V[:nq]
+    jaccard = np.ones((nq, nq), dtype=np.float32)
+    for i in range(nq):
+        nz = np.nonzero(Vq[i])[0]
+        if len(nz):
+            mn = np.minimum(Vq[i, nz][None, :], Vq[:, nz]).sum(axis=1)
+            jaccard[i] = 1.0 - mn / (2.0 - mn)
+    sim = 1.0 - ((1.0 - lam) * jaccard + lam * orig_dist[:nq, :nq])
+    np.fill_diagonal(sim, -np.inf)
+    return sim
+
+
+def _rich_mats(fold, ctx):
+    from .retrieval import fit_lda
+    Zq_l2, Zg_l2 = ctx.emb["l2"][fold.query_rows], ctx.emb["l2"][fold.gallery_rows]
+    f = fit_lda(Zg_l2, fold.gallery_labels, gamma=0.3, d_out=256)
+    Zq_lda, Zg_lda = f(Zq_l2), f(Zg_l2)
+    S_lda = Zq_lda @ Zq_lda.T; np.fill_diagonal(S_lda, -np.inf)
+    Kr_l2 = _krec_qq(Zq_l2, Zg_l2)
+    Kr_lda = _krec_qq(Zq_lda, Zg_lda)
+    top_kr = np.argsort(-Kr_lda, axis=1)[:, :5]
+    return S_lda, Kr_l2, Kr_lda, top_kr
 
 
 def _posteriors(df, qdf, T, beta):
@@ -47,7 +100,7 @@ def _posteriors(df, qdf, T, beta):
     return out
 
 
-def _pair_table(fold, ctx, k, post, split, kpg=None):
+def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
     Z = ctx.emb["l2"][fold.query_rows]; Zp = ctx.emb["pcaw"][fold.query_rows]
     S = Z @ Z.T; np.fill_diagonal(S, -np.inf)
     order = np.argsort(-S, axis=1)
@@ -57,9 +110,14 @@ def _pair_table(fold, ctx, k, post, split, kpg=None):
     qr, qids = fold.query_rows, fold.query_ids
     side, kp, ln = ctx.side, ctx.kp, ctx.lognorm
     kscore, ktop = kpg if kpg is not None else ({}, {})
+    S_lda, Kr_l2, Kr_lda, top_kr = rich if rich is not None else (None, None, None, None)
+    post_d = {qids[i]: dict(zip(*post[f"{split}|{qids[i]}"])) for i in range(len(qr))} if rich is not None else None
     for i in range(len(qr)):
         li, pi_ = post[f"{split}|{qids[i]}"]
-        cand = list(nn[i]) + [j for j in ktop.get(i, []) if j not in set(nn[i])]   # + keypoint-graph neighbours
+        cand = list(nn[i]) + [j for j in ktop.get(i, []) if j not in set(nn[i])]
+        if top_kr is not None:
+            cset = set(cand)
+            cand += [int(j) for j in top_kr[i] if int(j) not in cset]
         for j in cand:
             if j == i:
                 continue
@@ -68,6 +126,19 @@ def _pair_table(fold, ctx, k, post, split, kpg=None):
             if f is None:
                 f = np.full(len(SF), np.nan, np.float32)
             si, sj = side[qr[i]], side[qr[j]]
+            kp1 = kscore.get((i, j), 0.0); kp2 = kscore.get((j, i), 0.0)
+            r_extra = ()
+            if rich is not None:
+                di, dj = post_d[qids[i]], post_d[qids[j]]
+                dot = sum(v * dj.get(l, 0.0) for l, v in di.items() if l != NEW)
+                r_extra = (float(S_lda[i, j]), float(Kr_l2[i, j]), float(Kr_lda[i, j]),
+                           float(dot), float(min(kp1, kp2)), float(np.log1p(kp1)))
+            bg_extra = ()
+            if sift_bg:
+                rt = float(f[SF.index("abs_rot")]); sc_ = float(f[SF.index("log_scale")])
+                sp_ = float(f[SF.index("spread_min")]); inl_ = float(f[SF.index("inl_aff")])
+                isbg = float(np.isfinite(rt) and np.isfinite(sp_) and rt < 0.50 and sp_ < 0.25)
+                bg_extra = (rt, sc_, isbg, 0.0 if isbg else inl_)
             rows.append((i, j, S[i, j], float(Zp[i] @ Zp[j]), rank[i, j], rank[j, i],
                          float(si == sj and si in "LR"), float({si, sj} == {"L", "R"}),
                          min(kp[qr[i]], kp[qr[j]]), abs(ln[qr[i]] - ln[qr[j]]),
@@ -75,16 +146,17 @@ def _pair_table(fold, ctx, k, post, split, kpg=None):
                          f[SF.index("inl_ratio")], f[SF.index("inl_over_kp")], f[SF.index("spread_min")],
                          float(li[int(np.argmax(pi_))] == lj[int(np.argmax(pj))]), float(min(pi_.max(), pj.max())),
                          int(fold.species == "leopard"))
-                        + ((kscore.get((i, j), 0.0), kscore.get((j, i), 0.0),
-                            ktop[i].index(j) if j in ktop.get(i, []) else 99) if kpg is not None else ()))
-    df = pd.DataFrame(rows, columns=["i", "j"] + PAIR_FEATS + (KP_FEATS if kpg is not None else []))
-    return df
+                        + ((kp1, kp2, ktop[i].index(j) if j in ktop.get(i, []) else 99) if kpg is not None else ())
+                        + r_extra + bg_extra)
+    cols = ["i", "j"] + PAIR_FEATS + (KP_FEATS if kpg is not None else []) + (RICH_FEATS if rich is not None else []) + (SIFT_BG_FEATS if sift_bg else [])
+    return pd.DataFrame(rows, columns=cols)
 
 
-def _propagate(n, labels_per_q, probs_per_q, edges, w, alpha, iters=30):
+def _propagate(n, labels_per_q, probs_per_q, edges, w, alpha, iters=30, return_conn=False):
     """Returns list of (labels, probs) after propagation over a union label space."""
     if alpha == 0 or len(edges) == 0:
-        return list(zip(labels_per_q, probs_per_q))
+        out = list(zip(labels_per_q, probs_per_q))
+        return (out, np.zeros(n, dtype=bool)) if return_conn else out
     lab_index = {}
     for labs in labels_per_q:
         for l in labs:
@@ -107,7 +179,7 @@ def _propagate(n, labels_per_q, probs_per_q, edges, w, alpha, iters=30):
     for q in range(n):
         nz = np.where(F[q] > 1e-9)[0]
         out.append((list(inv[nz]), F[q, nz]))
-    return out
+    return (out, d > 0) if return_conn else out
 
 
 def _consensus_filter(n, edges, w, thr):
@@ -174,48 +246,84 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
     tfolds = [(-1, sp_, test_fold(data, sp_)) for sp_ in SPECIES]
     KP = {}
     if tc.get("kp_graph", False):
-        # keypoint query graph: extra candidate edges between query images that share SIFT keypoints (cached per fold)
+        from .kpgraph import query_graph
         import hashlib, pickle as _pk
         from .io import P as _P
-        from .kpgraph import query_graph
+        np_kp = int(tc.get("kp_nprobe", 8))
         for r, sp_, f in folds + tfolds:
             h = hashlib.md5(np.asarray(f.query_rows).tobytes()).hexdigest()[:12]
-            cp = _P(cfg, "cache") / "kpgraph" / f"{sp_}_{h}.pkl"
+            sfx = f"_np{np_kp}" if np_kp != 8 else ""
+            cp = _P(cfg, "cache") / "kpgraph" / f"{sp_}_{h}{sfx}.pkl"
             if cp.exists():
                 KP[(r, sp_)] = _pk.loads(cp.read_bytes())
             else:
-                KP[(r, sp_)] = query_graph(f, ctx); cp.parent.mkdir(parents=True, exist_ok=True); cp.write_bytes(_pk.dumps(KP[(r, sp_)]))
-        log(f"[trans] keypoint query graph ready for {len(KP)} folds ({time.time() - t0:.0f}s)")
-    PF = PAIR_FEATS + (KP_FEATS if KP else [])
+                KP[(r, sp_)] = query_graph(f, ctx, nprobe=np_kp); cp.parent.mkdir(parents=True, exist_ok=True); cp.write_bytes(_pk.dumps(KP[(r, sp_)]))
+        log(f"[trans] keypoint query graph built for {len(KP)} folds ({time.time() - t0:.0f}s)")
+    RICH = {}
+    if tc.get("trans_rich", False):
+        for r, sp_, f in folds + tfolds:
+            RICH[(r, sp_)] = _rich_mats(f, ctx)
+        log(f"[trans] rich query-query LDA + k-reciprocal built for {len(RICH)} folds ({time.time() - t0:.0f}s)")
+    sift_bg = bool(tc.get("sift_bg", False))
+    PF = PAIR_FEATS + (KP_FEATS if KP else []) + (RICH_FEATS if RICH else []) + (SIFT_BG_FEATS if sift_bg else [])
     if ctx.pc is not None:
         pairs = []
         for r, sp_, f in folds + tfolds:
             pairs += query_neighbour_pairs(f, ctx, k)
             if KP:
                 pairs += [(f.query_rows[i], f.query_rows[j]) for i, js in KP[(r, sp_)][1].items() for j in js]
+            if RICH:
+                top_kr = RICH[(r, sp_)][3]
+                pairs += [(f.query_rows[i], f.query_rows[int(j)]) for i in range(len(top_kr)) for j in top_kr[i]]
         ctx.pc.ensure(pairs)
     post_cv = _posteriors(cv, qdf, T, beta)
     post_te = _posteriors(test, tq, T, beta)
+    # optional: blend another pipeline's probabilities into the prior P0 BEFORE propagation (team-blend experiment)
+    import os, pickle as _pk
+    if os.environ.get("BLEND_CV"):
+        wb = float(os.environ.get("BLEND_W", "0.5"))
+        oc = _pk.load(open(os.environ["BLEND_CV"], "rb")); ot = _pk.load(open(os.environ["BLEND_TEST"], "rb"))
+
+        def _mix(post, other):
+            for key in post:
+                labs, pr = post[key]; o = other(key)
+                d = {l: (1 - wb) * p for l, p in zip(labs, pr)}
+                for l, p in o.items():
+                    d[l] = d.get(l, 0.0) + wb * p
+                post[key] = (list(d.keys()), np.array(list(d.values()), float))
+        _mix(post_cv, lambda k: oc[int(k.split("|", 1)[0])][0][k.split("|", 1)[1]])
+        _mix(post_te, lambda k: ot[k.split("|", 1)[1]])
+        log(f"[trans] P0 = {1 - wb:.2f} * own + {wb:.2f} * external probabilities")
     ident = data.meta.identity.values
     ptabs = []
     for r, sp_, f in folds:
-        pt = _pair_table(f, ctx, k, post_cv, r, KP.get((r, sp_)))
+        pt = _pair_table(f, ctx, k, post_cv, r, KP.get((r, sp_)), RICH.get((r, sp_)), sift_bg=sift_bg)
         pt["y"] = (ident[f.query_rows[pt.i.values]] == ident[f.query_rows[pt.j.values]]).astype(int)
         pt["group"] = ident[f.query_rows[pt.i.values]]
         pt["split"] = r; pt["species"] = sp_
         ptabs.append(pt)
     pcv = pd.concat(ptabs, ignore_index=True)
-    pcv["p_same"], _ = oof_predict(pcv, PF, "y", pcv.group.values, kind="lgb")
+    bag_seeds = tc.get("bag_seeds", None)
+    bag_test = bool(tc.get("bag_test", False))
+    if bag_test:
+        pcv["p_same"], _, pm_bag = oof_predict(pcv, PF, "y", pcv.group.values, kind="lgb", return_models=True, seeds=bag_seeds)
+    else:
+        pcv["p_same"], _ = oof_predict(pcv, PF, "y", pcv.group.values, kind="lgb", seeds=bag_seeds)
     from sklearn.metrics import roc_auc_score
     log(f"[trans] pair model OOF AUC={roc_auc_score(pcv.y, pcv.p_same):.4f}, "
         f"AUC cos only={roc_auc_score(pcv.y, pcv.cos_l2):.4f}, pairs={len(pcv)} ({time.time() - t0:.0f}s)")
-    pm = fit_full(pcv, PF, "y", pcv.group.values, kind="lgb")
     tt = []
     for r, sp_, f in tfolds:
-        pt = _pair_table(f, ctx, k, post_te, r, KP.get((r, sp_))); pt["split"] = r; pt["species"] = sp_
+        pt = _pair_table(f, ctx, k, post_te, r, KP.get((r, sp_)), RICH.get((r, sp_)), sift_bg=sift_bg); pt["split"] = r; pt["species"] = sp_
         tt.append(pt)
     pte = pd.concat(tt, ignore_index=True)
-    pte["p_same"] = pm.predict(pte[PF].to_numpy(np.float32))
+    if bag_test:
+        pte["p_same"] = predict_bag(pm_bag, pte[PF].to_numpy(np.float32))
+    else:
+        pm = fit_full(pcv, PF, "y", pcv.group.values, kind="lgb")
+        pte["p_same"] = pm.predict(pte[PF].to_numpy(np.float32))
+
+    conn_only = bool(tc.get("conn_new_scale", False))
 
     def run_fold(post, ptab, f, r, alpha, tau_e, consensus):
         keys = [f"{r}|{q}" for q in f.query_ids]
@@ -224,7 +332,8 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
         edges = ptab[["i", "j"]].values[m]; w = ptab.p_same.values[m]
         if consensus and len(edges):
             edges, w = _consensus_filter(len(keys), edges, w, tau_e)
-        return keys, _propagate(len(keys), labs, prs, edges, w, alpha)
+        outp, conn = _propagate(len(keys), labs, prs, edges, w, alpha, return_conn=True)
+        return keys, outp, conn
 
     truth_by_key = dict(zip(qdf.split.astype(str) + "|" + qdf.query_id, qdf.truth))
     grid_alpha = tc.get("alphas", [0.0, 0.2, 0.4, 0.6, 0.8])
@@ -239,10 +348,11 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
                 for r, s2, f in folds:
                     if s2 != sp_:
                         continue
-                    keys, outp = run_fold(post_cv, pcv[(pcv.split == r) & (pcv.species == sp_)], f, r, alpha, tau_e,
-                                          tc.get("consensus", True))
+                    keys, outp, conn = run_fold(post_cv, pcv[(pcv.split == r) & (pcv.species == sp_)], f, r, alpha, tau_e,
+                                                tc.get("consensus", True))
                     for si, sc in enumerate(scales):
-                        aps[si].append(np.mean([_ap(l, p, truth_by_key[kk], sc) for kk, (l, p) in zip(keys, outp)]))
+                        aps[si].append(np.mean([_ap(l, p, truth_by_key[kk], sc if (not conn_only or c) else 1.0)
+                                                for kk, (l, p), c in zip(keys, outp, conn)]))
                 for si, sc in enumerate(scales):
                     res.append((alpha, tau_e, float(np.log(sc)), float(np.mean(aps[si])), aps[si]))
         df = pd.DataFrame(res, columns=["alpha", "tau_e", "log_new_scale", "mapv", "per_split"])
@@ -254,17 +364,31 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
                          grid=[(float(x.alpha), float(x.tau_e), float(x.log_new_scale), [float(v) for v in x.per_split])
                                for x in df.itertuples()])
         log(f"[trans] {sp_}: best alpha={b.alpha} tau_e={b.tau_e} new_scale=e^{b.log_new_scale:.1f} "
-            f"MAP={b.mapv:.4f} (alpha=0: {off.mapv:.4f})")
+            f"(conn_only={conn_only}) MAP={b.mapv:.4f} (alpha=0: {off.mapv:.4f})")
+    # export: out-of-fold CV probabilities with each species' chosen alpha / tau_e / new_scale (for team-blend tuning)
+    for r, sp_, f in folds:
+        bb = best[sp_]
+        keys, outp, conn = run_fold(post_cv, pcv[(pcv.split == r) & (pcv.species == sp_)], f, r, bb["alpha"], bb["tau_e"],
+                                    tc.get("consensus", True))
+        sc_b = np.exp(bb["log_new_scale"])
+        for kk, (l, p), c in zip(keys, outp, conn):
+            ll, pp = list(l), np.array(p, float).copy()
+            if NEW in ll:
+                pp[ll.index(NEW)] *= (sc_b if (not conn_only or c) else 1.0)
+            EXPORT_CV.setdefault(r, {})[kk.split("|", 1)[1]] = dict(zip(ll, pp / pp.sum()))
     # test predictions
     preds = {}
     for r, sp_, f in tfolds:
         bb = best[sp_]
-        keys, outp = run_fold(post_te, pte[pte.species == sp_], f, r, bb["alpha"], bb["tau_e"], tc.get("consensus", True))
-        for kk, (l, p) in zip(keys, outp):
-            preds[kk.split("|", 1)[1]] = _rank(l, p, np.exp(bb["log_new_scale"]))
+        keys, outp, conn = run_fold(post_te, pte[pte.species == sp_], f, r, bb["alpha"], bb["tau_e"], tc.get("consensus", True))
+        sc_b = np.exp(bb["log_new_scale"])
+        log(f"[trans] test {sp_}: connected={int(conn.sum())}/{len(conn)} ({conn.mean():.3f})")
+        for kk, (l, p), c in zip(keys, outp, conn):
+            sc_i = sc_b if (not conn_only or c) else 1.0
+            preds[kk.split("|", 1)[1]] = _rank(l, p, sc_i)
             # export for team blending: final label probabilities (same new_scale as the ranking), renormalised
             ll, pp = list(l), np.array(p, float).copy()
             if NEW in ll:
-                pp[ll.index(NEW)] *= np.exp(bb["log_new_scale"])
+                pp[ll.index(NEW)] *= sc_i
             EXPORT_PROBS[kk.split("|", 1)[1]] = dict(zip(ll, pp / pp.sum()))
     return preds, best, pcv
