@@ -26,7 +26,14 @@ class LGBModel:
     def fit(self, X, y, groups, feats):
         p = dict(self.params)
         if self.mono:
-            p["monotone_constraints"] = [1 if f in MONO_POS else 0 for f in feats]
+            if "sift_inl_clean2" in feats:
+                mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean2", "hub_l2", "hub_lda", "lnb_rimg",
+                            "max_lda512", "max_slda512", "max_sw2152", "max_ssw2152")
+            elif "sift_inl_clean" in feats:
+                mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean")
+            else:
+                mono_set = MONO_POS
+            p["monotone_constraints"] = [1 if f in mono_set else 0 for f in feats]
             p["monotone_constraints_method"] = "advanced"
         tr, va = next(GroupShuffleSplit(1, test_size=0.15, random_state=0).split(X, y, groups))
         dtr = lgb.Dataset(X[tr], y[tr], feature_name=feats, free_raw_data=False)
@@ -101,14 +108,32 @@ def make_model(kind, **kw):
     return {"lgb": LGBModel, "lr": LRModel, "xgb": XGBModel, "cat": CatModel, "mlp": MLPModel}[kind](**kw)
 
 
-def oof_predict(df, feats, label, groups, kind="lgb", n_splits=5, **kw):
+def oof_predict(df, feats, label, groups, kind="lgb", n_splits=5, return_models=False, seeds=None, **kw):
     """Out-of-fold predictions with GroupKFold over `groups` (true query identity)."""
     X = df[feats].to_numpy(np.float32); y = df[label].to_numpy()
-    oof = np.zeros(len(df)); iters = []
-    for tr, va in GroupKFold(n_splits).split(X, y, groups):
-        m = make_model(kind, **kw).fit(X[tr], y[tr], groups[tr], feats)
-        oof[va] = m.predict(X[va]); iters.append(getattr(m, "best_iter", 0))
-    return oof, iters
+    seeds = list(seeds) if seeds else [None]
+    oof = np.zeros(len(df), dtype=np.float64); iters = []; models = []
+    for sd in seeds:
+        kw_s = dict(kw)
+        if sd is not None and kind == "lgb":
+            p = dict(kw_s.get("params") or {})
+            p["seed"] = int(sd); p["bagging_seed"] = int(sd); p["feature_fraction_seed"] = int(sd)
+            kw_s["params"] = p
+        for tr, va in GroupKFold(n_splits).split(X, y, groups):
+            m = make_model(kind, **kw_s).fit(X[tr], y[tr], groups[tr], feats)
+            oof[va] += m.predict(X[va]) / len(seeds)
+            iters.append(getattr(m, "best_iter", 0))
+            if return_models:
+                models.append(m)
+    return (oof, iters, models) if return_models else (oof, iters)
+
+
+def predict_bag(models, X):
+    """Average probability predictions across a list of bagged fold/seed models."""
+    out = np.zeros(len(X), dtype=np.float64)
+    for m in models:
+        out += m.predict(X) / len(models)
+    return out
 
 
 def fit_full(df, feats, label, groups, kind="lgb", **kw):

@@ -7,7 +7,9 @@ ALLOWED_THIRD_PARTY = {"numpy", "pandas", "scipy", "sklearn", "statsmodels", "im
                        "lightgbm", "catboost", "networkx", "cv2", "faiss", "matplotlib", "seaborn"}
 LOCAL = {"reid", "src", "scripts", "tests", "check_compliance",
          "core", "lnbnn", "features", "model2", "exp_kpg", "exp_kpg_v2",
-         "exp_lnb_img", "exp_blend_check", "make_kpg_probs", "make_dev_bgclean"}
+         "exp_lnb_img", "exp_blend_check", "make_kpg_probs", "make_dev_bgclean",
+         "build_dev_v10", "make_dev_bgclean2", "make_dev_bgclean3", "make_dev_hubness",
+         "make_dev_v10_fullbg", "make_dev_v10_lprop", "make_dev_v10_lda512", "exp_dev_learned_prop"}
 CV2_ALLOWED = {"BFMatcher", "BFMatcher_create", "FlannBasedMatcher", "DMatch", "NORM_L2",
                "findHomography", "estimateAffinePartial2D", "estimateAffine2D", "findFundamentalMat",
                "perspectiveTransform", "transform", "RANSAC", "USAC_MAGSAC", "USAC_DEFAULT", "LMEDS",

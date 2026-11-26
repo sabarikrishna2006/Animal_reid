@@ -1,0 +1,78 @@
+{
+  "exp_slug": "v19_bgclean_v2",
+  "seed": 2026,
+  "cv": {
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "enc_thr": 0.2,
+    "p_move": {
+      "hyena": 0.3,
+      "leopard": 0.25
+    },
+    "f_new_id": {
+      "hyena": 0.15,
+      "leopard": 0.4
+    },
+    "max_new_id_size": 40
+  },
+  "retrieval": {
+    "embedding": "l2",
+    "n_cand": 30,
+    "tau": {
+      "hyena": 0.49,
+      "leopard": 0.52
+    },
+    "lnbnn": true,
+    "lnbnn_img": true,
+    "lnbnn_cand": 5,
+    "lnbnn_nprobe": 64,
+    "krec": true,
+    "bg_clean": true
+  },
+  "sift": {
+    "ratio": 0.8,
+    "ransac_frac": 0.02,
+    "top_ids": 15,
+    "imgs_per_id": 8,
+    "graph_k": 10,
+    "workers": 10
+  },
+  "model": {
+    "enabled": false,
+    "methods": [
+      "softmax"
+    ],
+    "final_method": "softmax",
+    "extra_cv": "configs/exp_v3_sift_v16.json",
+    "bg_clean_v2": true
+  },
+  "transductive": {
+    "enabled": true,
+    "features": true,
+    "consensus": false,
+    "alphas": [
+      0.0,
+      0.4,
+      0.6,
+      0.8,
+      0.9,
+      0.95
+    ],
+    "tau_e": [
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7
+    ],
+    "kp_graph": true,
+    "kp_nprobe": 32,
+    "sift_bg": true,
+    "conn_new_scale": true
+  }
+}

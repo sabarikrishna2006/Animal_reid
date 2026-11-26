@@ -13,9 +13,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None); ap.add_argument("--baseline", action="store_true")
     ap.add_argument("--name", default="")
-    ap.add_argument("--blend", nargs=2, metavar=("A.probs.pkl", "B.probs.pkl"), default=None,
-                    help="team blend: weighted average of two {test_id: {label: prob}} files (simple model combination)")
-    ap.add_argument("--w", type=float, default=0.5, help="weight of the first --blend file (default 0.5 = equal)")
     a = ap.parse_args()
     subprocess.run([sys.executable, str(ROOT / "scripts" / "check_compliance.py")], check=True)
     import numpy as np, pandas as pd
@@ -26,22 +23,7 @@ def main():
 
     cfg = load_config(a.config)
     t0 = time.time()
-    if a.blend:
-        import pickle
-        data = load_data(cfg)
-        A, B = (pickle.load(open(p, "rb")) for p in a.blend)
-        assert set(A) == set(B) == set(data.test.id), "both probability files must cover exactly the test ids"
-        allowed = data.train.groupby("species").identity.apply(set).to_dict()
-        sp = dict(zip(data.test.id, data.test.species))
-        preds = {}
-        for q in data.test.id:
-            labs = set(A[q]) | set(B[q])
-            sc = {l: a.w * A[q].get(l, 0.0) + (1 - a.w) * B[q].get(l, 0.0) for l in labs}
-            ranked = [l for l in sorted(labs, key=lambda l: (-sc[l], l)) if l == NEW or l in allowed[sp[q]]][:5]
-            preds[q] = ranked                     # write_submission() validates labels, species and length
-        exp_id = new_exp_id("sub_team_blend" + (("_" + a.name) if a.name else ""))
-        info = {"blend": [str(p) for p in a.blend], "w": a.w}
-    elif a.baseline:
+    if a.baseline:
         from reid.retrieval import embed_unsupervised, IdentityIndex, baseline_predict
         from reid.splits import test_fold
         data = load_data(cfg); U = embed_unsupervised(data.X, data.meta, "l2")
@@ -59,8 +41,18 @@ def main():
         from reid.calibration import em_prior, prior_shift
         data, ctx, splits = prepare(cfg)
         tabs = build_tables(cfg, data, ctx, splits)
-        from reid.pipeline import load_extra_cv
-        out = run_second_level(tabs["cv"], cfg, test=tabs["test"], extra=load_extra_cv(cfg))
+        from reid.pipeline import load_extra_cv, attach_hubness, attach_rimg, attach_lda512, attach_sw2152
+        extra = load_extra_cv(cfg)
+        cv_in, test_in = tabs["cv"], tabs["test"]
+        if cfg["model"].get("hubness", False):
+            cv_in, test_in, extra = attach_hubness(cfg, data, ctx, splits, cv_in, test_in, extra)
+        if cfg["model"].get("lnb_rimg", False):
+            cv_in, test_in, extra = attach_rimg(cfg, data, ctx, splits, cv_in, test_in, extra)
+        if cfg["model"].get("lda512", False):
+            cv_in, test_in, extra = attach_lda512(cfg, data, ctx, splits, cv_in, test_in, extra)
+        if cfg["model"].get("sw2152", False):
+            cv_in, test_in, extra = attach_sw2152(cfg, data, ctx, splits, cv_in, test_in, extra)
+        out = run_second_level(cv_in, cfg, test=test_in, extra=extra)
         cv, qdf, T, test, tq = out["cv"], out["qdf"], out["T"], out["test"], out["tqdf"]
         method = cfg["model"].get("final_method", "softmax")
         beta = tune_beta(cv, qdf, "pnew", T, method)
@@ -91,12 +83,15 @@ def main():
         exp_id = new_exp_id("sub_" + cfg.get("exp_slug", "exp") + (("_" + a.name) if a.name else ""))
     path = P(cfg, "submissions") / f"sub_{exp_id}.csv"
     sub = write_submission(preds, data.test, data.train, path)
-    if not a.baseline and not a.blend and cfg["transductive"].get("enabled", False):
+    if not a.baseline and cfg["transductive"].get("enabled", False):
         import pickle
         from reid.transductive import EXPORT_PROBS
         assert set(EXPORT_PROBS) == set(data.test.id), "probability export incomplete"
         pickle.dump(EXPORT_PROBS, open(path.with_suffix(".probs.pkl"), "wb"))
         print(f"wrote {path.with_suffix('.probs.pkl')} ({len(EXPORT_PROBS)} test queries)")
+        from reid.transductive import EXPORT_CV
+        pickle.dump(EXPORT_CV, open(path.with_name(path.stem + ".cv.probs.pkl"), "wb"))
+        print(f"wrote CV probs: { {r: len(v) for r, v in EXPORT_CV.items()} }")
     first = sub.predictions.str.split(" ").str[0]
     info["frac_new_at_rank1"] = {sp: float((first[data.test.species.values == sp] == NEW).mean()) for sp in SPECIES}
     info["seconds"] = time.time() - t0

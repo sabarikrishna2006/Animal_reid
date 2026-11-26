@@ -15,12 +15,13 @@ Every official Kaggle submission is tagged in Git with a unique version ID and s
 | `sub-v09-2026-11-21-blend-pseudo` | 2026-11-21 | `sub_team_blend_pseudo.csv` | — | 0.85829 | Devyaansh | Self-training variant (dropped) |
 | `sub-v10-2026-11-22-blend-lnb6` | 2026-11-22 | `sub_team_blend_lnb6.csv` | `submissions/sub_20261122-155330_sub_team_blend_lnb6.csv` | 0.86749 | Devyaansh | Both pipelines + image-level & K=3 LNBNN + kpgraph + Zhou prop (`v9`) |
 | **`sub-v11-2026-11-22-blend-lnb7`** | **2026-11-22** | **`sub_team_blend_lnb7.csv`** | **`submissions/sub_20261122-171705_sub_team_blend_lnb7.csv`** | **0.88073** | **Devyaansh** | **+ `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal (`v10`)** |
-
 | `sub-v12-2026-11-22-blend-lnb10` | 2026-11-22 | `sub_team_blend_lnb10.csv` | — | 0.87794 | Lokesh | Early `v10` + `lnb_img` blend iteration (dropped) |
 | `sub-v13-2026-11-22-blend-lnb11` | 2026-11-22 | `sub_team_blend_lnb11.csv` | — | 0.88034 | Lokesh | `nprobe=64` LNBNN + `lnb_uimg` background-keypoint filtering test |
 | `sub-v14-2026-11-22-blend-lnb12` | 2026-11-22 | `sub_team_blend_lnb12.csv` | — | 0.87778 | Lokesh | Alternative `lnb_img` weighting / threshold test (dropped) |
-
 | `sub-v15-2026-11-23-blend-lnb15` | 2026-11-23 | `sub_team_blend_lnb15.csv` | — | 0.87820 | Lokesh | Early SIFT geometry / weighting ablation (dropped) |
 | `sub-v16-2026-11-23-blend-lnb16` | 2026-11-23 | `sub_team_blend_lnb16.csv` | — | 0.87976 | Lokesh | `bg_clean` + `nprobe=64` LNBNN ensemble iteration |
-
 | **`sub-v17-2026-11-24-blend-lnb18`** | **2026-11-24** | **`sub_team_blend_lnb18_dualbg.csv`** | — | **0.88101** | **Lokesh** | **Dual-pipeline `bg_clean` (`nprobe=64` + `lnb_uimg` + `lnb_rimg`) + `conn_new_scale` isolated-node fix** |
+| `sub-v18-2026-11-24-blend-lnb19` | 2026-11-24 | `sub_team_blend_lnb19_bag.csv` | — | 0.87843 | Devyaansh | `rich_q` + `alpha=0.95` bagged Sabari variant (over-propagated, dropped) |
+| `sub-v19-2026-11-24-blend-lnb20` | 2026-11-24 | `sub_team_blend_lnb20_bag_ens.csv` | — | 0.87925 | Devyaansh | Bagged ensemble ablation (dropped) |
+| `sub-v20-2026-11-24-lokesh-v4` | 2026-11-24 | `notebook58859ee901 - wildlife_reid_v4` | — | 0.87324 | Lokesh Akurathi | Standalone Kaggle notebook model (`wildlife_reid_v4`) |
+| `sub-v21-2026-11-24-blend-lnb21` | 2026-11-24 | `sub_team_blend_lnb21_bg2.csv` | — | 0.88238 | Devyaansh | Stage-1 Corner Camera-Trap SIFT Killer (`abs_rot < 0.50° & spread_min < 0.25`) on both halves |
