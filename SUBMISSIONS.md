@@ -27,6 +27,8 @@ Every official Kaggle submission is tagged in Git with a unique version ID and s
 | `sub-v21-2026-11-24-blend-lnb21` | 2026-11-24 | `sub_team_blend_lnb21_bg2.csv` | — | 0.88238 | Devyaansh | Stage-1 Corner Camera-Trap SIFT Killer (`abs_rot < 0.50° & spread_min < 0.25`) on both halves |
 | `sub-v22-2026-11-25-blend-lnb29` | 2026-11-25 | `sub_team_blend_lnb29_topcv.csv` | — | 0.88375 | Devyaansh | Stage-2 Full-Frame Camera-Trap SIFT Killer + Gallery Hubness (`r_g_diff`) + Missing-Candidate Veto Fix (`25% bg3 + 25% dev_hub + 50% dev_v10_fullbg` + `50/50(v17, v19)`) |
 | `sub-v23-2026-11-25-blend-lnb28` | 2026-11-25 | `sub_team_blend_lnb28_v10fullbg.csv` | — | 0.88155 | Devyaansh | `100% dev_v10_fullbg` + `50/50(v17, v19)` ablation (confirmed 50/50 Dev pool diversity is essential) |
-| **`sub-v24-2026-11-25-blend-lnb30`** | **2026-11-25** | **`sub_team_blend_lnb30_v10_lprop.csv`** | — | **0.88403** | **Devyaansh** | **Rank 1: `50% avg(bg1-3) + 50% dev_v10_fullbg_lprop` (strictly nested learned bg-filtered qq-graph, AUC 0.9777) + `50/50(v17_conn, v19_bgclean_v2)`** |
+| `sub-v24-2026-11-25-blend-lnb30` | 2026-11-25 | `sub_team_blend_lnb30_v10_lprop.csv` | — | 0.88403 | Devyaansh | `50% avg(bg1-3) + 50% dev_v10_fullbg_lprop` (strictly nested learned bg-filtered qq-graph, AUC 0.9777) + `50/50(v17_conn, v19_bgclean_v2)` |
 | `sub-v25-2026-11-25-blend-lnb32` | 2026-11-25 | `sub_team_blend_lnb32_lprop67.csv` | — | 0.88272 | Jazl Anwar MV | `67% v10_lprop` weight ablation (dropped; confirmed 50/50 Dev internal balance is optimal) |
+| **`sub-v26-2026-11-25-blend-lnb34`** | **2026-11-25** | **`sub_team_blend_lnb34_sw2152.csv`** | — | **0.88424** | **Jazl Anwar MV** | **Rank 1: Gallery-only `PCA(512)-LDA` + `Side-LDA` + Full 2152-dim Within-Class Covariance Whitening (`sw2152`) + `r_g_diff` hubness on both pipelines (`exp_v24_fullbg_sw2152` + `dev_v10_sw2152_lprop`)** |
+
 

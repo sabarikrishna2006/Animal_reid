@@ -1,6 +1,6 @@
 # Wildlife Re-ID (spotted hyena + leopard, MAP@5)
 (Problem 3): for each test image, rank up to 5 labels (a training identity of the same species or
-`new_individual`). Only the provided MiewID embeddings and SIFT keypoints may be used. **Read `CLAUDE.md` for the rules
+`new_individual`). Only the provided MiewID embeddings and SIFT keypoints may be used. **Read `PLAN.md` for the rules
 before changing anything** (allowed libraries, cv2 restrictions, no images, submissions only via the script).
 
 
@@ -24,13 +24,13 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 
 
 
-## Final Submission & Team Blend (Rank 1 — `0.88403`)
-**`sub_team_blend_lnb30_v10_lprop.csv` (`sub-v24-2026-11-25-blend-lnb30`): Public LB `0.88403` (Rank 1)**.
-Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**.
+## Final Submission & Team Blend (Rank 1 — `0.88424`)
+**`sub_team_blend_lnb34_sw2152.csv` (`sub-v26-2026-11-25-blend-lnb34`): Public LB `0.88424` (Rank 1)** (second selected submission: `sub_team_blend_lnb30_v10_lprop.csv`, `sub-v24-2026-11-25-blend-lnb30`, Public LB `0.88403`).
+Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**. Full report: **[`reports/final_report.md`](reports/final_report.md)**.
 
 Our final solution blends the temperature-calibrated label probability distributions of two independent, strictly zero-leakage pipelines:
-- **Sabari Pipeline (`50%`)**: 50/50 ensemble of `exp_v17_bgclean_conn` and `exp_v19_bgclean_v2` (`src/reid/`).
-- **Dev Pipeline (`50%`)**: 50/50 ensemble of `avg(bg1, bg2, bg3)` and `dev_v10_fullbg_lprop` (`dev_pipeline/`).
+- **Sabari Pipeline (`50%`)**: Ensemble of `exp_v17_bgclean_conn`, `exp_v19_bgclean_v2`, `exp_v23_fullbg_lda512`, and `exp_v24_fullbg_sw2152` (`src/reid/`).
+- **Dev Pipeline (`50%`)**: Ensemble of `avg(bg1, bg2, bg3)` and `dev_v10_fullbg_lprop` / `dev_v10_lda512_lprop` / `dev_v10_sw2152_lprop` (`dev_pipeline/`).
 
 ### Key Zero-Leakage Discoveries
 1. **Two-Stage Camera-Trap SIFT Background Filtering (`bg_clean` & SIFT Killers)**:

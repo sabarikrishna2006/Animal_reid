@@ -1,12 +1,12 @@
-# CLAUDE.md — Wildlife Re-Identification (spotted hyena + leopard, MAP@5)
+# Project Execution Plan — Wildlife Re-Identification (spotted hyena + leopard, MAP@5)
 
-You are the execution engine for a course Kaggle competition. The architecture is already decided
-(see "Wildlife Re-ID Architecture Plan"). Your job: implement it gate by gate, measure every change on a
+Execution plan for the course Kaggle competition. The architecture is defined in
+"Wildlife Re-ID Architecture Plan". We implement it gate by gate, measure every change on a
 leak-free open-set CV, and produce verified submissions. Do not redesign the pipeline without evidence
 from CV; propose changes in the gate report instead.
 
-The student (Aman) must be able to defend every decision in a viva. So for every gate you also write a
-short teaching report (see "Reporting") explaining what was done, why, and what the numbers say.
+For every gate we also write a
+short report (see "Reporting") explaining what was done, why, and what the numbers say.
 
 ---------------------------------------------------------------------------------------------------
 ## 0. Hard rules (academic misconduct if broken) — read before writing any code
@@ -33,7 +33,7 @@ short teaching report (see "Reporting") explaining what was done, why, and what 
    reductions, trees, RF, bagging, stacking, XGBoost/LightGBM/CatBoost/HistGradientBoosting,
    `sklearn.neural_network.MLPClassifier` (plain fully connected, trained from scratch), classical
    keypoint matching (NN, ratio test, RANSAC). Nothing else (no conv/recurrent/attention layers).
-6. **No hand-labelling and no LLM-produced predictions.** You write code; predictions come ONLY from
+6. **No hand-labelling.** Predictions come ONLY from
    `scripts/03_make_submission.py`. Never edit a submission CSV by hand or by an ad-hoc snippet.
    Never "fix" individual test rows.
 7. `scripts/check_compliance.py` must pass before every CV run and every submission (wire it into both).
@@ -61,7 +61,7 @@ If anything you want to do is not clearly allowed, stop and write the question i
 
 ```
 wildlife-reid/
-├── CLAUDE.md
+├── PLAN.md
 ├── configs/base.json, configs/exp_*.json        # JSON only; exp files override base
 ├── data/raw/                                    # the 7 files, never modified
 ├── data/cache/                                  # aligned.npz, sift_kp/, sift_pairs.npz, splits/*.json
@@ -320,7 +320,7 @@ without a matching registry row (i.e. every submission traces to a pipeline run)
 | propagation α | 0.5 | 0–0.9 |
 
 ---------------------------------------------------------------------------------------------------
-## 10. Reporting (teaching mode)
+## 10. Reporting
 
 After each gate write `reports/gateN.md` with:
 1. What was built (modules, functions) — one line each.
@@ -328,14 +328,14 @@ After each gate write `reports/gateN.md` with:
    open set, repeated new individuals, burst near-duplicates, empty SIFT, gallery-size shift).
 3. Results table (CV mean ± std, per species, known-only, new AUC, KS, LB if any).
 4. What surprised you / what failed and why.
-5. Three viva-style questions the student should be able to answer about this gate, with answers.
+5. Three viva-style questions about this gate, with answers.
 Keep math in LaTeX (`$...$`). Keep it short and concrete.
 
 ---------------------------------------------------------------------------------------------------
-## 11. When to stop and ask the human
+## 11. Checkpoints before changing architecture
 
 - Any rule ambiguity (write to `reports/questions_for_TA.md`).
 - CV and LB disagree by > 0.03 after Gate 2.
 - π̂ estimates (GMM, LB probe, EM) disagree by > 5 points.
 - A stage would take > 3 hours of compute.
-- You want to change the architecture (explain the evidence first).
+- Changing the architecture (document the evidence first).

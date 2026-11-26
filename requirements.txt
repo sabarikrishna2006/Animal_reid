@@ -1,4 +1,4 @@
-# Allowed libraries only (see CLAUDE.md / problem statement). Python >= 3.10.
+# Allowed libraries only (see PLAN.md / problem statement). Python >= 3.10.
 numpy
 pandas
 scipy

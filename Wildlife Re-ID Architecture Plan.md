@@ -260,9 +260,9 @@ P^{*} = (1 - \alpha)\,(I - \alpha S)^{-1} P^{0}, \qquad 0 \le \alpha < 1
 
 CV mirrors all of this naturally: CV queries also contain held-out identities with several images and known identities with several query images. Error propagation is the main risk, so every transductive piece is ablated on its own, and one of the two final submissions is chosen *without* it.
 
-## 10. Execution gates for Claude Code
+## 10. Execution gates
 
-Claude Code works through five gates in order and does not start a gate until the previous one's exit check passes. The full instructions are in the companion `CLAUDE.md` file.
+We work through five gates in order and do not start a gate until the previous one's exit check passes. The full instructions are in the companion `PLAN.md` file.
 
 | Gate | Build | Exit check |
 | --- | --- | --- |
@@ -294,7 +294,7 @@ One package, thin CLI scripts, expensive things cached once. Configs are JSON an
 
 ```text
 wildlife-reid/
-├── CLAUDE.md                     # execution rules for Claude Code (companion file)
+├── PLAN.md                       # execution rules and gate checklist (companion file)
 ├── configs/
 │   ├── base.json                 # paths, seeds, species list, K, N, CV settings
 │   └── exp_*.json                # one file per experiment, overrides base

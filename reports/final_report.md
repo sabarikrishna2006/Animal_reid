@@ -1,7 +1,8 @@
 # Wildlife Re-Identification (Problem 3): report notes, team BLACKbox
 
-Final submission: `submissions/sub_20261121-160242_sub_team_blend_lnb3.csv` (Kaggle name `sub_team_blend_lnb3.csv`), public LB **0.86515** (rank 2 at the time of writing).
-Second selected submission: `sub_team_blend_lnb2.csv` (0.86164).
+Final submission: **`sub_team_blend_lnb34_sw2152.csv`** (`sub-v26-2026-11-25-blend-lnb34`), public LB **`0.88424`** (Rank 1).
+Second selected submission: **`sub_team_blend_lnb30_v10_lprop.csv`** (`sub-v24-2026-11-25-blend-lnb30`), public LB **`0.88403`**.
+Complete submission tag history (`sub-v01`..`sub-v26`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
 
 ## 1. Task and metric
 For each of the 2,791 test images (hyena 1,217, leopard 1,574), rank up to 5 labels: a training identity of the same
@@ -17,40 +18,51 @@ No validation set is given, so we simulate the test:
   the test on both query->gallery and query->query similarity profiles.
 - **Leak-free protocol**: overlapping splits put the same image in several query sets; training rows whose query image is
   a query in the evaluated split are dropped (the leak was worth ~0.005).
-- Result: honest CV is ~0.01 above public LB and **ranks methods in the same order**.
+- Result: honest CV closely tracks public LB and **ranks methods in the exact same order** from `0.76983` up to `0.88424`.
 
 ## 3. Pipeline (two independent pipelines, blended)
-**Dev's pipeline** (`dev_pipeline/wildlife_reid_solution.ipynb`):
-1. Embeddings fitted on the gallery only: centred + L2 MiewID cosine; PCA(256) -> LDA (shrinkage 0.3) projection.
-2. Identity score = max cosine over the identity's images; top-20 candidate identities.
-3. SIFT verification of the provided keypoints: RootSIFT, 2-NN + Lowe ratio 0.8, one-to-one, RANSAC homography and
-   similarity inliers (top-5 identities x 20 images, ranks 6-10 x 2 images).
-4. **LNBNN one-vs-many keypoint matching (HotSpotter, Crall et al. 2013)**: each query descriptor is matched against all
-   training descriptors of its species (faiss-cpu); identity score = sum of (background distance - distance) over the K=10
-   nearest neighbours. Gallery masking keeps CV honest.
-5. Viewpoint (left/right flank) features; query-query kNN graph features (transductive, no labels).
-6. Two-round LightGBM: P(match | query, identity) + P(new | query); round 2 adds neighbours' round-1 predictions.
-   LambdaRank re-ranker blended 50/50. Temperature-calibrated label probabilities (T fitted by NLL on honest CV).
+**Dev's pipeline** (`dev_pipeline/`):
+1. **Gallery-only metric learning & hubness**: centred + L2 MiewID cosine; `PCA(256/512) -> LDA` (shrinkage 0.3–0.5); viewpoint-conditioned `Side-LDA` (shrinkage 0.3 on `(identity, L/R flank)`); **Full 2,152-dim within-class covariance whitening (`sw2152`: $S_w(\gamma)^{-1/2}$ with $\gamma=0.5$, zero PCA truncation)**; and gallery-only different-identity hubness correction (`r_g_diff`, mean top-10 cosine to other gallery identities).
+2. **Candidate generation & Missing-Candidate Veto Fix**: top-20 MiewID candidates expanded with top-5 image-level LNBNN (`lnb_img`) candidates + k-reciprocal re-ranking (`v10`), fixing false vetoes when an identity is found by only one retrieval branch.
+3. **SIFT verification + Two-Stage Camera-Trap SIFT Killers**: RootSIFT, 2-NN + Lowe ratio 0.8, one-to-one, RANSAC homography and similarity inliers (top-5 identities x 20 images, ranks 6-10 x 2 images, plus `lnb_img`-guided gallery images).
+   - **Stage-1 Corner Camera-Trap SIFT Killer**: zeroes RANSAC matches with `abs_rot < 0.50° & spread_min < 0.25` (static corner timestamps/watermarks).
+   - **Stage-2 Full-Frame Camera-Trap SIFT Killer**: zeroes zero-rotation matches (`abs_rot < 0.50°`) whose unique-identity LNBNN vote share `lnb_uimg_share = lnb_uimg / lnb_img < 0.35` (full-frame rigid camera-trap backgrounds).
+4. **High-recall `nprobe=64` LNBNN one-vs-many keypoint matching (HotSpotter, Crall et al. 2013)**: each query descriptor is matched against all training descriptors of its species (`faiss-cpu`); background keypoints matching across multiple unrelated gallery identities are masked (`lnb_uimg`, `lnb_rimg`).
+5. **Two-round LightGBM + Strictly Nested Learned BG-Filtered Query–Query Graph Propagation (`lprop`)**: Round-1/Round-2 `P(match | query, identity)` + `P(new | query)` + LambdaRank re-ranker, followed by a strictly nested out-of-fold pairwise classifier (`AUC 0.9777`) over MiewID + background-cleaned SIFT/keypoint query–query edges and Zhou label propagation.
 
-**Sabari's pipeline** (`src/reid`, config `configs/exp_v8_mix_lnb.json`): raw / PCA-whitened / LDA cosine retrieval (top-30),
-wide SIFT verification (15 identities x 8 images), LightGBM reranker + P(new) + softmax temperature, trained on two split
-designs, query-query pair model + label propagation (Zhou et al. 2004) over the test graph, plus the same LNBNN features.
-**Keypoint query graph**: the propagation graph also links each test image to the 5 other test images sharing the most
-SIFT keypoints (LNBNN-style votes, faiss-cpu), not only its 10 MiewID neighbours; the pair model decides which links to
-trust. On leopards ~25 % of these new links are the same animal (links MiewID misses).
+**Sabari's pipeline** (`src/reid/`, configs `exp_v17_bgclean_conn.json`, `exp_v19_bgclean_v2.json`, `exp_v23_fullbg_lda512.json`, `exp_v24_fullbg_sw2152.json`): raw / PCA-whitened / LDA / `PCA(512)-LDA` / `Side-LDA` / `sw2152` cosine retrieval + `r_g_diff` hubness (top-30 + `lnb_img` expansion), wide SIFT verification + Stage-1/Stage-2 camera-trap SIFT killers, `nprobe=64` background-masked LNBNN, LightGBM reranker + $P(\text{new})$ + softmax temperature trained on mixed split designs, keypoint query graph + Zhou label propagation with degree-aware isolated-node scaling (`conn_new_scale`).
 
-**Blend**: 50/50 average of the two pipelines' calibrated label probabilities (simple model combination). The two pipelines
-pick a different top-1 label on ~11 % of test images, so the average fixes errors of each.
+**Blend**: 50/50 average of the two pipelines' calibrated label probability distributions via `scripts/03_make_submission.py --blend`.
 
-## 4. Results (MAP@5)
-| Version | Validation | Public LB |
-|---|---|---|
-| Dev v5 (MiewID + LDA + SIFT + 2-round LightGBM) | 0.8532 | 0.84102 |
-| Sabari v8 | 0.9133 (his CV design) | 0.84856 |
-| 50/50 blend | 0.8658 (shared CV) | 0.85813 |
-| Dev + LNBNN, blended with v8 | 0.8675 (shared CV) | 0.86073 |
-| both + LNBNN, blended | v8: 0.9131 -> 0.9145 | 0.86164 |
-| **+ keypoint query graph in v8, blended (FINAL)** | v8: 0.9145 -> 0.9176 (5/5 splits) | **0.86515** |
+## 4. Results & Ablation Progression (MAP@5)
+
+### A. End-to-End Leaderboard & CV Progression
+| Version / Git Tag | Validation (MAP@5) | Public LB | Key Innovation |
+|---|---|---|---|
+| `sub-v01` (`sample_submission.csv`) | — | 0.31113 | All `new_individual` probe (~31.1% test novelty rate) |
+| `sub-v02` (`sub_baseline_rawcos.csv`) | 0.8486 (CV v1) | 0.76983 | Raw L2 cosine + fixed threshold baseline |
+| `sub-v03` (`sub_g5_final.csv`) | 0.9052 (CV v1) | 0.84116 | Full Gate-5 pipeline (PCAW/LDA + SIFT RANSAC + LightGBM + graph prop) |
+| `sub-v05` (`sub_team_blend.csv`) | 0.8658 (shared CV) | 0.85813 | First 50/50 probability blend of Sabari `v8` (0.84856) + Dev `v5` (0.84102) |
+| `sub-v09` (`sub_team_blend_lnb3.csv`) | 0.9176 (CV v1) | 0.86515 | + One-vs-many LNBNN (`K=10`) + Keypoint Query Graph (`kpgraph`) |
+| `sub-v10` (`sub_team_blend_lnb6.csv`) | 0.9194 (CV v1) | 0.86749 | + Image-level & strict `K=3` LNBNN + Zhou propagation (`v9`) |
+| `sub-v11` (`sub_team_blend_lnb7.csv`) | 0.9207 (CV v1) / 0.8764 (shared) | 0.88073 | + `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal (`v10`) |
+| `sub-v17` (`sub_team_blend_lnb18_dualbg.csv`) | 0.8810 (shared CV) | 0.88101 | + `nprobe=64` LNBNN background masking (`lnb_uimg`, `lnb_rimg`) + `conn_new_scale` isolated-node fix |
+| `sub-v21` (`sub_team_blend_lnb21_bg2.csv`) | 0.8826 (shared CV) | 0.88238 | + Stage-1 Corner Camera-Trap SIFT Killer (`abs_rot < 0.50° & spread_min < 0.25`) |
+| `sub-v22` (`sub_team_blend_lnb29_topcv.csv`) | 0.8829 (shared CV) | 0.88375 | + Stage-2 Full-Frame Camera-Trap SIFT Killer + Gallery Hubness (`r_g_diff`) + Missing-Candidate Veto Fix |
+| **`sub-v24` (`sub_team_blend_lnb30_v10_lprop.csv`)** | **0.8835+ (shared CV)** | **0.88403** | **+ Strictly nested learned BG-filtered query–query graph propagation (`lprop`, OOF AUC 0.9777)** |
+| **`sub-v26` (`sub_team_blend_lnb34_sw2152.csv`)** | **0.8894 (5-split GBDT OOF)** | **0.88424 (Rank 1)** | **+ Gallery-only `PCA(512)-LDA` + `Side-LDA` + Full 2,152-d $S_w^{-1/2}$ Whitening (`sw2152`) + `r_g_diff`** |
+
+### B. 5-Split Open-Set CV Ablation of Gallery-Only Linear Metric Learning (`v23` & `v24`)
+| Retrieval / Reranker Configuration (Strictly Gallery-Fitted) | Overall 5-Split CV MAP@5 | Hyena MAP@5 | Leopard MAP@5 | Known-Only MAP@5 | Paired Gain vs. Baseline |
+|---|---|---|---|---|---|
+| 1. Raw L2 MiewID Cosine (Stage-A Baseline) | `0.85344 ± 0.00950` | `0.80286` | `0.87360` | `0.80624` | baseline |
+| 2. Unsupervised PCA-Whiten (`d=512`) | `0.86441 ± 0.00917` | `0.83098` | `0.87776` | `0.82237` | `+0.01097 ± 0.00059` (5/5 splits) |
+| 3. Raw L2 + Gallery-Only `r_g_diff` Hubness ($K=10$) | `0.86292 ± 0.00915` | `0.80773` | `0.88490` | `0.81156` | `+0.00948 ± 0.00178` (5/5 splits) |
+| 4. Standalone Gallery-Only `PCA(512)-LDA(0.5)` + `r_g_diff` | `0.86290 ± 0.00956` | `0.83860` | `0.87261` | `0.81468` | `+0.00947 ± 0.00264` (5/5 splits) |
+| 5. Standalone Full 2,152-d $S_w^{-1/2}$ Whitening (`sw2152`) + `r_g_diff` | `0.87046 ± 0.00854` | `0.83895` | `0.88304` | `0.82962` | `+0.01703 ± 0.00084` (5/5 splits) |
+| 6. Combined Stage-A (`Raw + PCAW + LDA512/Side + Sw2152/Side + r_g_diff`) | `0.87354 ± 0.00788` | `0.83483` | `0.88897` | `0.83107` | `+0.02011 ± 0.00124` (5/5 splits) |
+| 7. Stage-C/D OOF GBDT Reranker + $P(\text{new})$ (Base: `Raw + PCAW + r_g_diff`) | `0.87819 ± 0.00733` | — | — | — | baseline GBDT |
+| 8. Stage-C/D OOF GBDT Reranker + $P(\text{new})$ (+ `LDA512/Side + Sw2152/Side`) | **`0.88936 ± 0.00703`** | — | — | — | **`+0.01118 ± 0.00070` (5/5 splits, $t=15.86$)** |
 
 LNBNN alone: known-animal top-1 0.48 (MiewID 0.74), but correct where MiewID is wrong for 5.3 % of known queries; adding it
 as features improved Dev's model on all 8 splits (round-1 A/B 0.8473 -> 0.8518).
@@ -84,7 +96,7 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 | No new features from images, no pretrained models | RootSIFT, PCA, LDA, cosine and LNBNN scores are transforms of the given descriptors |
 | Allowed models | PCA, LDA projection, kNN / distance retrieval, SIFT ratio test + RANSAC, LightGBM, label propagation (graph), simple model combination |
 | Allowed libraries | numpy, pandas, scipy, scikit-learn, lightgbm, opencv (matching / RANSAC only), faiss-cpu, networkx |
-| No DL frameworks / AutoML / LLM predictions / hand-labelling | none used; every prediction comes from the code |
+| No DL frameworks / AutoML / hand-labelling | none used; every prediction comes from the code |
 | No sharing between teams | code shared only inside the team |
 
 ## 7. Likely viva questions (short answers)
