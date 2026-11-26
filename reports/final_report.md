@@ -1,8 +1,8 @@
 # Wildlife Re-Identification (Problem 3): report notes, team BLACKbox
 
-Final submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`** (Rank 1).
-Second selected submission: **`sub_team_blend_lnb34_sw2152.csv`** (`sub-v26-2026-11-25-blend-lnb34`), public LB **`0.88424`**.
-Complete submission tag history (`sub-v01`..`sub-v29`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
+Final submission: **`sub_team_blend_lnb38_v28_g2q_safe.csv`** (`sub-v30-2026-11-27-blend-lnb38`), public LB **`0.88605`** (Rank 1).
+Second selected submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`**.
+Complete submission tag history (`sub-v01`..`sub-v30`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
 
 ## 1. Task and metric
 For each of the 2,791 test images (hyena 1,217, leopard 1,574), rank up to 5 labels: a training identity of the same

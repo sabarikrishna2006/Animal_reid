@@ -24,8 +24,8 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 
 
 
-## Final Submission & Team Blend (Rank 1 — `0.88585`)
-**`sub_team_blend_lnb36_sw2152_v25.csv` (`sub-v29-2026-11-26-blend-lnb36`): Public LB `0.88585` (Rank 1)** (second selected submission: `sub_team_blend_lnb34_sw2152.csv`, `sub-v26-2026-11-25-blend-lnb34`, Public LB `0.88424`).
+## Final Submission & Team Blend (Rank 1 — `0.88605`)
+**`sub_team_blend_lnb38_v28_g2q_safe.csv` (`sub-v30-2026-11-27-blend-lnb38`): Public LB `0.88605` (Rank 1)** (second selected submission: `sub_team_blend_lnb36_sw2152_v25.csv`, `sub-v29-2026-11-26-blend-lnb36`, Public LB `0.88585`; third: `sub_team_blend_lnb34_sw2152.csv`, `sub-v26-2026-11-25-blend-lnb34`, Public LB `0.88424`).
 Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**. Full report: **[`reports/final_report.md`](reports/final_report.md)**.
 
 Our final solution blends the temperature-calibrated label probability distributions of two independent, strictly zero-leakage pipelines:
