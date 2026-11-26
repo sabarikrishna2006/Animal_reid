@@ -24,17 +24,32 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 
 
 
-## Team blend (current best)
-Two independent pipelines (this repo's v8 and Dev's) agree on the top-1 label for only ~89 % of test images, so averaging
-their calibrated label probabilities (simple model combination, allowed) beats both on the public LB (0.85813 vs 0.84856 / 0.84102).
-Pushing new_individual up with a prior-shift correction hurt (0.85504), so the plain average is kept.
-1. Every transductive run of `03_make_submission.py` now also writes `submissions/sub_<id>.probs.pkl`:
+## Final Submission & Team Blend (Rank 1 — `0.88403`)
+**`sub_team_blend_lnb30_v10_lprop.csv` (`sub-v24-2026-11-25-blend-lnb30`): Public LB `0.88403` (Rank 1)**.
+Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**.
+
+Our final solution blends the temperature-calibrated label probability distributions of two independent, strictly zero-leakage pipelines:
+- **Sabari Pipeline (`50%`)**: 50/50 ensemble of `exp_v17_bgclean_conn` and `exp_v19_bgclean_v2` (`src/reid/`).
+- **Dev Pipeline (`50%`)**: 50/50 ensemble of `avg(bg1, bg2, bg3)` and `dev_v10_fullbg_lprop` (`dev_pipeline/`).
+
+### Key Zero-Leakage Discoveries
+1. **Two-Stage Camera-Trap SIFT Background Filtering (`bg_clean` & SIFT Killers)**:
+   - **`nprobe=64` LNBNN Background-Keypoint Masking (`lnb_uimg`, `lnb_rimg`)**: Masks static camera-trap background keypoints that match across multiple unrelated gallery identities before scoring.
+   - **Stage-1 Corner & Stage-2 Full-Frame Camera-Trap SIFT Killers**: Zeroes out false-positive RANSAC SIFT geometric matches caused by static camera-trap overlays, timestamps, and rigid background foliage (`abs_rot < 0.50° & spread_min < 0.25` and full-frame identity-agnostic static keypoint filters).
+2. **Missing-Candidate Veto Fix & Gallery-Only Hubness (`r_g_diff`)**:
+   - Eliminates false veto penalties when an identity is absent from a secondary candidate pool and penalizes gallery hubs using strictly gallery-fitted neighborhood statistics (`r_g_diff`).
+3. **Strictly Nested Learned BG-Filtered Query–Query Graph Propagation (`lprop`, OOF AUC `0.9777`) & `conn_new_scale`**:
+   - Replaces hand-tuned query–query similarity heuristics with a strictly nested out-of-fold pairwise classifier over MiewID + background-filtered RootSIFT keypoint graph edges, paired with degree-aware `new_individual` scaling (`conn_new_scale`) so isolated test nodes are not over-dampened during label propagation.
+4. **Gallery-Only Linear Metric Learning (`PCA(512)-LDA`, `Side-LDA`, `sw2152`)**:
+   - Fits `PCA(512)-LDA`, viewpoint-conditioned `Side-LDA`, and full 2152-dim within-class covariance whitening (`Sw^{-1/2}`) strictly on fold-gallery identity labels with zero test-label leakage.
+
+### Blending & Reproduction
+1. Every transductive run of `03_make_submission.py` writes `submissions/sub_<id>.probs.pkl`:
    `{test_id: {label: probability}}`, the final propagated probabilities (with the tuned new-scale), renormalised.
-   Its argmax equals the first label of the submission written in the same run.
-2. Dev's pipeline writes the same format (`test_probs.pkl`, temperature-calibrated on his honest CV).
-3. Blend (still only through the submission script, validated like every submission):
+2. Dev's pipeline modules in `dev_pipeline/` write the same calibrated probability dictionary format.
+3. Blend (validated through the submission script):
 ```
-py scripts/03_make_submission.py --blend submissions/sub_<v8>.probs.pkl path/to/test_probs.pkl --w 0.5
+py scripts/03_make_submission.py --blend submissions/sub_<sabari>.probs.pkl path/to/dev_probs.pkl --w 0.5
 ```
 
 
