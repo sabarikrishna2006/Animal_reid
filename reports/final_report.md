@@ -1,8 +1,8 @@
 # Wildlife Re-Identification (Problem 3): report notes, team BLACKbox
 
-Final submission: **`sub_team_blend_lnb34_sw2152.csv`** (`sub-v26-2026-11-25-blend-lnb34`), public LB **`0.88424`** (Rank 1).
-Second selected submission: **`sub_team_blend_lnb30_v10_lprop.csv`** (`sub-v24-2026-11-25-blend-lnb30`), public LB **`0.88403`**.
-Complete submission tag history (`sub-v01`..`sub-v26`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
+Final submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`** (Rank 1).
+Second selected submission: **`sub_team_blend_lnb34_sw2152.csv`** (`sub-v26-2026-11-25-blend-lnb34`), public LB **`0.88424`**.
+Complete submission tag history (`sub-v01`..`sub-v29`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
 
 ## 1. Task and metric
 For each of the 2,791 test images (hyena 1,217, leopard 1,574), rank up to 5 labels: a training identity of the same
@@ -53,6 +53,7 @@ No validation set is given, so we simulate the test:
 | **`sub-v26` (`sub_team_blend_lnb34_sw2152.csv`)** | **0.8894 (5-split GBDT OOF)** | **0.88424 (Rank 1)** | **+ Gallery-only `PCA(512)-LDA` + `Side-LDA` + Full 2,152-d $S_w^{-1/2}$ Whitening (`sw2152`) + `r_g_diff`** |
 | `sub-v27` (`sub_v27_5paper_full_sift_lnbnn.csv`) | 0.86456 (8-split Honest R1 CV) | 0.86594 | Standalone Round-1 5-paper model (`Sw2152` Diffusion/DBA + Cross-Flank Procrustes + AS-Norm + PLDA + Sinkhorn OT); verified Honest CV tracks Public LB within `0.0014` |
 | `sub-v28` (`sub_team_blend_lnb35_5paper_balanced.csv`) | — | 0.88351 | Post-hoc rank-surrogate blend of `lnb34` + standalone `v27` (dropped; confirmed blending requires raw `.probs.pkl` before propagation) |
+| **sub-v29 (sub_team_blend_lnb36_sw2152_v25.csv)** | **0.88571 (8-split Dev) / 0.93381 (5-split Sabari)** | **0.88585 (Rank 1)** | **+ Dual-pool Full 2,152-d Sw Whitening (dev_bg_sw2152_prop + dev_v10_sw2152_lprop, 7/8 splits) + 5-model monotone LGB Sabari ensemble (17, v19, v23, v24, v25)** |
 
 ### B. 5-Split Open-Set CV Ablation of Gallery-Only Linear Metric Learning (`v23` & `v24`)
 | Retrieval / Reranker Configuration (Strictly Gallery-Fitted) | Overall 5-Split CV MAP@5 | Hyena MAP@5 | Leopard MAP@5 | Known-Only MAP@5 | Paired Gain vs. Baseline |
@@ -101,6 +102,11 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
   looked good on validation by a small margin and lost on the LB were dropped, not tuned further on the public score.
   Validation (~0.866 shared CV) and public LB (0.865) agree, so there is no sign of fitting the public 30 %. The private
   score can still differ by roughly +-0.01 from sampling alone (about 1,950 private vs 840 public images).
+- **Final `lnb36` (`0.88585`) Overfitting & Leakage Audit**:
+  - Learning curves on held-out split 0 for `dev_bg_sw2152`: `Pair P(match)` val log-loss at iter `600` (`0.02702`) is within `+0.00008` of its minimum (`0.02694` at iter `694`); `Query P(new)` at iter `400` (`0.21770`) is within `+0.00024` of its minimum (`0.21746` at iter `299`).
+  - Calibration & entropy match `lnb34` identically (`top1_prob 0.8395 vs 0.8391`, `entropy 0.6757 vs 0.6759`, `new@1 0.3902 vs 0.3920`) — zero overconfidence or threshold drift.
+  - Leave-one-out / weight-perturbation stability on test: shifting Dev/Sabari weight to `45/55` or `55/45` preserves `99.64–99.71%` top-1 agreement; dropping any single Sabari model preserves `99.89–99.96%` top-1 agreement.
+  - Zero leakage verified: `0` train/test ID overlap; all `sw2152`, `PCA(512)-LDA`, `Side-LDA`, `r_g_diff` hubness, and LNBNN transforms fit strictly on fold galleries; Round-1/Round-2 and `lprop` use strict leave-one-split-out OOF; Sabari models use `GroupShuffleSplit` early stopping + monotonic constraints (`alpha <= 0.8`).
 
 ## 6. Rule compliance
 | Rule | How it is met |
