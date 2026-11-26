@@ -51,6 +51,8 @@ No validation set is given, so we simulate the test:
 | `sub-v22` (`sub_team_blend_lnb29_topcv.csv`) | 0.8829 (shared CV) | 0.88375 | + Stage-2 Full-Frame Camera-Trap SIFT Killer + Gallery Hubness (`r_g_diff`) + Missing-Candidate Veto Fix |
 | **`sub-v24` (`sub_team_blend_lnb30_v10_lprop.csv`)** | **0.8835+ (shared CV)** | **0.88403** | **+ Strictly nested learned BG-filtered query–query graph propagation (`lprop`, OOF AUC 0.9777)** |
 | **`sub-v26` (`sub_team_blend_lnb34_sw2152.csv`)** | **0.8894 (5-split GBDT OOF)** | **0.88424 (Rank 1)** | **+ Gallery-only `PCA(512)-LDA` + `Side-LDA` + Full 2,152-d $S_w^{-1/2}$ Whitening (`sw2152`) + `r_g_diff`** |
+| `sub-v27` (`sub_v27_5paper_full_sift_lnbnn.csv`) | 0.86456 (8-split Honest R1 CV) | 0.86594 | Standalone Round-1 5-paper model (`Sw2152` Diffusion/DBA + Cross-Flank Procrustes + AS-Norm + PLDA + Sinkhorn OT); verified Honest CV tracks Public LB within `0.0014` |
+| `sub-v28` (`sub_team_blend_lnb35_5paper_balanced.csv`) | — | 0.88351 | Post-hoc rank-surrogate blend of `lnb34` + standalone `v27` (dropped; confirmed blending requires raw `.probs.pkl` before propagation) |
 
 ### B. 5-Split Open-Set CV Ablation of Gallery-Only Linear Metric Learning (`v23` & `v24`)
 | Retrieval / Reranker Configuration (Strictly Gallery-Fitted) | Overall 5-Split CV MAP@5 | Hyena MAP@5 | Leopard MAP@5 | Known-Only MAP@5 | Paired Gain vs. Baseline |
@@ -63,6 +65,17 @@ No validation set is given, so we simulate the test:
 | 6. Combined Stage-A (`Raw + PCAW + LDA512/Side + Sw2152/Side + r_g_diff`) | `0.87354 ± 0.00788` | `0.83483` | `0.88897` | `0.83107` | `+0.02011 ± 0.00124` (5/5 splits) |
 | 7. Stage-C/D OOF GBDT Reranker + $P(\text{new})$ (Base: `Raw + PCAW + r_g_diff`) | `0.87819 ± 0.00733` | — | — | — | baseline GBDT |
 | 8. Stage-C/D OOF GBDT Reranker + $P(\text{new})$ (+ `LDA512/Side + Sw2152/Side`) | **`0.88936 ± 0.00703`** | — | — | — | **`+0.01118 ± 0.00070` (5/5 splits, $t=15.86$)** |
+
+### C. 8-Split Honest 1-Query-Per-Encounter CV Ablation of `v27` Research-Paper Upgrades (`dev_pipeline/make_dev_v27_5paper.py`)
+| Round-1 3-Seed LightGBM Configuration (`per_enc=1`, Leak-Free 8-Split Honest CV) | 8-Split Honest CV MAP@5 | Paired Gain vs. Baseline | Split Wins |
+|---|---|---|---|
+| 0. Baseline `v24` (`Sw2152 + LDA512 + Side-LDA + nprobe=64 LNBNN`) | `0.85240 ± 0.00576` | baseline | — |
+| 1. + Two-Covariance Bayesian PLDA & Multi-Shot Prototype (Ioffe ECCV 2006) | `0.85262 ± 0.00534` | `+0.00023 ± 0.00059` | `4/8` |
+| 2. + Cohort-Excluded AS-Norm (Cumani / Matejka Interspeech) | `0.85337 ± 0.00617` | `+0.00098 ± 0.00041` | `5/8` |
+| 3. + $S_w^{-1/2}$ Manifold Diffusion / Mutual $\alpha$-QE + Gallery DBA (Iscen CVPR 2017) | **`0.85998 ± 0.00493`** | **`+0.00758 ± 0.00086` ($t=8.81$)** | **`8/8`** |
+| 4. + Orthogonal Procrustes Cross-Flank Alignment ($R_{L \leftrightarrow R}$ in `Sw2152-PCA128`) | **`0.85659 ± 0.00537`** | **`+0.00420 ± 0.00067` ($t=6.27$)** | **`8/8`** |
+| 5. + Sinkhorn-Knopp Partial Optimal Transport Dual-Softmax | `0.85321 ± 0.00604` | `+0.00081 ± 0.00043` | `6/8` |
+| 6. Combined 5-Paper Standalone Round-1 Model (`sub-v27`, Public LB **`0.86594`**) | **`0.86456 ± 0.00519`** | **`+0.01216 ± 0.00120` ($t=10.16$)** | **`8/8`** |
 
 LNBNN alone: known-animal top-1 0.48 (MiewID 0.74), but correct where MiewID is wrong for 5.3 % of known queries; adding it
 as features improved Dev's model on all 8 splits (round-1 A/B 0.8473 -> 0.8518).
