@@ -13,6 +13,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None); ap.add_argument("--baseline", action="store_true")
     ap.add_argument("--name", default="")
+    ap.add_argument("--blend", nargs="+", metavar="PROBS.pkl", default=None,
+                    help="team/ensemble blend: weighted average of 2+ {test_id: {label: prob}} files")
+    ap.add_argument("--w", type=float, default=0.5, help="weight of first file for 2-file --blend (default 0.5)")
+    ap.add_argument("--weights", nargs="+", type=float, default=None, help="weights matching --blend files")
     a = ap.parse_args()
     subprocess.run([sys.executable, str(ROOT / "scripts" / "check_compliance.py")], check=True)
     import numpy as np, pandas as pd
@@ -23,7 +27,37 @@ def main():
 
     cfg = load_config(a.config)
     t0 = time.time()
-    if a.baseline:
+    if a.blend:
+        import pickle
+        assert len(a.blend) >= 2, "--blend requires at least 2 probability files"
+        data = load_data(cfg)
+        probs_list = [pickle.load(open(p, "rb")) for p in a.blend]
+        for p in probs_list:
+            assert set(p) == set(data.test.id), "every probability file must cover all test ids"
+        if a.weights is not None:
+            assert len(a.weights) == len(probs_list), "--weights must match --blend count"
+            ws = np.asarray(a.weights, dtype=float)
+        elif len(probs_list) == 2:
+            ws = np.array([a.w, 1.0 - a.w], dtype=float)
+        else:
+            ws = np.ones(len(probs_list), dtype=float)
+        ws = ws / ws.sum()
+        allowed = data.train.groupby("species").identity.apply(set).to_dict()
+        sp = dict(zip(data.test.id, data.test.species))
+        preds = {}
+        for q in data.test.id:
+            labs = set().union(*(p[q].keys() for p in probs_list))
+            sc = {l: sum(float(w) * p[q].get(l, 0.0) for w, p in zip(ws, probs_list)) for l in labs}
+            ranked = [l for l in sorted(labs, key=lambda l: (-sc[l], l)) if l == NEW or l in allowed[sp[q]]][:5]
+            for l in [NEW] + sorted(allowed[sp[q]]):
+                if len(ranked) == 5:
+                    break
+                if l not in ranked:
+                    ranked.append(l)
+            preds[q] = ranked
+        exp_id = new_exp_id("sub_team_blend" + (("_" + a.name) if a.name else ""))
+        info = {"blend": [str(p) for p in a.blend], "weights": ws.tolist()}
+    elif a.baseline:
         from reid.retrieval import embed_unsupervised, IdentityIndex, baseline_predict
         from reid.splits import test_fold
         data = load_data(cfg); U = embed_unsupervised(data.X, data.meta, "l2")
@@ -37,22 +71,20 @@ def main():
         exp_id = new_exp_id("sub_baseline_rawcos")
         info = {"tau": cfg["retrieval"]["tau"]}
     else:
-        from reid.pipeline import prepare, build_tables, run_second_level, decide, tune_beta, evaluate
+        from reid.pipeline import prepare, build_tables, run_second_level, decide, tune_beta, evaluate, load_extra_cv, attach_optional_features
         from reid.calibration import em_prior, prior_shift
         data, ctx, splits = prepare(cfg)
         tabs = build_tables(cfg, data, ctx, splits)
-        from reid.pipeline import load_extra_cv, attach_hubness, attach_rimg, attach_lda512, attach_sw2152
         extra = load_extra_cv(cfg)
-        cv_in, test_in = tabs["cv"], tabs["test"]
-        if cfg["model"].get("hubness", False):
-            cv_in, test_in, extra = attach_hubness(cfg, data, ctx, splits, cv_in, test_in, extra)
-        if cfg["model"].get("lnb_rimg", False):
-            cv_in, test_in, extra = attach_rimg(cfg, data, ctx, splits, cv_in, test_in, extra)
-        if cfg["model"].get("lda512", False):
-            cv_in, test_in, extra = attach_lda512(cfg, data, ctx, splits, cv_in, test_in, extra)
-        if cfg["model"].get("sw2152", False):
-            cv_in, test_in, extra = attach_sw2152(cfg, data, ctx, splits, cv_in, test_in, extra)
-        out = run_second_level(cv_in, cfg, test=test_in, extra=extra)
+        cv_in, test_in, extra = attach_optional_features(cfg, data, ctx, splits, tabs["cv"], tabs["test"], extra)
+        import gc
+        del tabs
+        gc.collect()
+        if cfg["model"].get("paradigm") == "dual":
+            from reid.dual_model import run_dual_pipeline
+            out = run_dual_pipeline(cfg, data, ctx, splits, cv_in, test=test_in, extra=extra)
+        else:
+            out = run_second_level(cv_in, cfg, test=test_in, extra=extra)
         cv, qdf, T, test, tq = out["cv"], out["qdf"], out["T"], out["test"], out["tqdf"]
         method = cfg["model"].get("final_method", "softmax")
         beta = tune_beta(cv, qdf, "pnew", T, method)
@@ -83,7 +115,7 @@ def main():
         exp_id = new_exp_id("sub_" + cfg.get("exp_slug", "exp") + (("_" + a.name) if a.name else ""))
     path = P(cfg, "submissions") / f"sub_{exp_id}.csv"
     sub = write_submission(preds, data.test, data.train, path)
-    if not a.baseline and cfg["transductive"].get("enabled", False):
+    if not a.baseline and not a.blend and cfg["transductive"].get("enabled", False):
         import pickle
         from reid.transductive import EXPORT_PROBS
         assert set(EXPORT_PROBS) == set(data.test.id), "probability export incomplete"

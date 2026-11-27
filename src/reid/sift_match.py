@@ -46,7 +46,7 @@ def match_features(xa, ra, xb, rb, ratio=0.8, ransac_frac=0.02):
         return f
     Sim = ra @ rb.T
     ba, oka = _ratio_nn(Sim, ratio)
-    bb, okb = _ratio_nn(Sim.T, ratio)
+    bb, okb = _ratio_nn(np.ascontiguousarray(Sim.T), ratio)
     f[2] = oka.sum() + okb.sum()
     ia = np.where(oka & okb[ba] & (bb[ba] == np.arange(na)))[0]
     ib = ba[ia]

@@ -28,6 +28,8 @@ EXPORT_PROBS = {}   # test query id -> {label: probability}, filled by apply_tra
 
 KP_FEATS = ["kp_qq", "kp_qq_sym", "kp_qq_rank"]
 SIFT_BG_FEATS = ["sift_rot", "sift_scale", "sift_is_bg", "sift_inl_clean"]
+SIFT_BG_V2_FEATS = ["sift_inlh", "sift_abs_scale", "sift_is_zero_rot"]
+SW_FEATS = ["cos_sw", "cos_fl512", "rank_sw_ij", "rank_sw_ji", "krec_qq_sw"]
 RICH_FEATS = ["cos_lda_qq", "krec_qq_l2", "krec_qq_lda", "post_dot", "kp_qq_min", "kp_qq_log"]
 PAIR_FEATS = ["cos_l2", "cos_pcaw", "rank_ij", "rank_ji", "same_side", "opp_side", "kp_min", "dlognorm",
               "sift_inl", "sift_inl_strict", "sift_mutual", "sift_ratio", "sift_overkp", "sift_spread",
@@ -84,6 +86,23 @@ def _rich_mats(fold, ctx):
     return S_lda, Kr_l2, Kr_lda, top_kr
 
 
+def _sw_mats(fold, ctx):
+    from .retrieval import fit_sw_and_fullda
+    Zq_l2, Zg_l2 = ctx.emb["l2"][fold.query_rows], ctx.emb["l2"][fold.gallery_rows]
+    projs = fit_sw_and_fullda(Zg_l2, fold.gallery_labels, reg=0.5, d_lda=512)
+    Zq_sw, Zg_sw = projs["sw"](Zq_l2), projs["sw"](Zg_l2)
+    Zq_fl = projs["fl512"](Zq_l2)
+    S_sw = Zq_sw @ Zq_sw.T; np.fill_diagonal(S_sw, -np.inf)
+    S_fl = Zq_fl @ Zq_fl.T; np.fill_diagonal(S_fl, -np.inf)
+    order = np.argsort(-S_sw, axis=1)
+    rank_sw = np.empty_like(order)
+    rank_sw[np.arange(len(S_sw))[:, None], order] = np.arange(S_sw.shape[1])[None, :]
+    Kr_sw = _krec_qq(Zq_sw, Zg_sw, k1=10, k2=4, lam=0.3)
+    top_sw = order[:, :5]
+    top_kr = np.argsort(-Kr_sw, axis=1)[:, :5]
+    return S_sw, S_fl, rank_sw, Kr_sw, top_sw, top_kr
+
+
 def _posteriors(df, qdf, T, beta):
     """Per query: candidate labels and probabilities (incl. new) before propagation."""
     df = df.copy()
@@ -100,7 +119,7 @@ def _posteriors(df, qdf, T, beta):
     return out
 
 
-def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
+def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False, swm=None, sift_bg_v2=False):
     Z = ctx.emb["l2"][fold.query_rows]; Zp = ctx.emb["pcaw"][fold.query_rows]
     S = Z @ Z.T; np.fill_diagonal(S, -np.inf)
     order = np.argsort(-S, axis=1)
@@ -111,6 +130,7 @@ def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
     side, kp, ln = ctx.side, ctx.kp, ctx.lognorm
     kscore, ktop = kpg if kpg is not None else ({}, {})
     S_lda, Kr_l2, Kr_lda, top_kr = rich if rich is not None else (None, None, None, None)
+    S_sw, S_fl, rank_sw, Kr_sw, top_sw, top_kr_sw = swm if swm is not None else (None, None, None, None, None, None)
     post_d = {qids[i]: dict(zip(*post[f"{split}|{qids[i]}"])) for i in range(len(qr))} if rich is not None else None
     for i in range(len(qr)):
         li, pi_ = post[f"{split}|{qids[i]}"]
@@ -118,6 +138,11 @@ def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
         if top_kr is not None:
             cset = set(cand)
             cand += [int(j) for j in top_kr[i] if int(j) not in cset]
+        if swm is not None:
+            cset = set(cand)
+            for j in list(top_sw[i]) + list(top_kr_sw[i]):
+                if int(j) not in cset:
+                    cand.append(int(j)); cset.add(int(j))
         for j in cand:
             if j == i:
                 continue
@@ -139,6 +164,14 @@ def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
                 sp_ = float(f[SF.index("spread_min")]); inl_ = float(f[SF.index("inl_aff")])
                 isbg = float(np.isfinite(rt) and np.isfinite(sp_) and rt < 0.50 and sp_ < 0.25)
                 bg_extra = (rt, sc_, isbg, 0.0 if isbg else inl_)
+            bg2_extra = ()
+            if sift_bg_v2:
+                rt2 = float(f[SF.index("abs_rot")]); sc2 = float(f[SF.index("log_scale")])
+                bg2_extra = (float(f[SF.index("inl_h")]), abs(sc2) if np.isfinite(sc2) else np.nan,
+                             float(np.isfinite(rt2) and rt2 < 0.15))
+            sw_extra = ()
+            if swm is not None:
+                sw_extra = (float(S_sw[i, j]), float(S_fl[i, j]), int(rank_sw[i, j]), int(rank_sw[j, i]), float(Kr_sw[i, j]))
             rows.append((i, j, S[i, j], float(Zp[i] @ Zp[j]), rank[i, j], rank[j, i],
                          float(si == sj and si in "LR"), float({si, sj} == {"L", "R"}),
                          min(kp[qr[i]], kp[qr[j]]), abs(ln[qr[i]] - ln[qr[j]]),
@@ -147,8 +180,9 @@ def _pair_table(fold, ctx, k, post, split, kpg=None, rich=None, sift_bg=False):
                          float(li[int(np.argmax(pi_))] == lj[int(np.argmax(pj))]), float(min(pi_.max(), pj.max())),
                          int(fold.species == "leopard"))
                         + ((kp1, kp2, ktop[i].index(j) if j in ktop.get(i, []) else 99) if kpg is not None else ())
-                        + r_extra + bg_extra)
-    cols = ["i", "j"] + PAIR_FEATS + (KP_FEATS if kpg is not None else []) + (RICH_FEATS if rich is not None else []) + (SIFT_BG_FEATS if sift_bg else [])
+                        + r_extra + bg_extra + bg2_extra + sw_extra)
+    cols = (["i", "j"] + PAIR_FEATS + (KP_FEATS if kpg is not None else []) + (RICH_FEATS if rich is not None else [])
+            + (SIFT_BG_FEATS if sift_bg else []) + (SIFT_BG_V2_FEATS if sift_bg_v2 else []) + (SW_FEATS if swm is not None else []))
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -250,22 +284,29 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
         import hashlib, pickle as _pk
         from .io import P as _P
         np_kp = int(tc.get("kp_nprobe", 8))
+        use_hnsw = bool(tc.get("kp_hnsw", False))
         for r, sp_, f in folds + tfolds:
             h = hashlib.md5(np.asarray(f.query_rows).tobytes()).hexdigest()[:12]
-            sfx = f"_np{np_kp}" if np_kp != 8 else ""
+            sfx = "_hnsw" if use_hnsw else (f"_np{np_kp}" if np_kp != 8 else "")
             cp = _P(cfg, "cache") / "kpgraph" / f"{sp_}_{h}{sfx}.pkl"
             if cp.exists():
                 KP[(r, sp_)] = _pk.loads(cp.read_bytes())
             else:
-                KP[(r, sp_)] = query_graph(f, ctx, nprobe=np_kp); cp.parent.mkdir(parents=True, exist_ok=True); cp.write_bytes(_pk.dumps(KP[(r, sp_)]))
+                KP[(r, sp_)] = query_graph(f, ctx, nprobe=np_kp, use_hnsw=use_hnsw); cp.parent.mkdir(parents=True, exist_ok=True); cp.write_bytes(_pk.dumps(KP[(r, sp_)]))
         log(f"[trans] keypoint query graph built for {len(KP)} folds ({time.time() - t0:.0f}s)")
     RICH = {}
     if tc.get("trans_rich", False):
         for r, sp_, f in folds + tfolds:
             RICH[(r, sp_)] = _rich_mats(f, ctx)
         log(f"[trans] rich query-query LDA + k-reciprocal built for {len(RICH)} folds ({time.time() - t0:.0f}s)")
+    SWM = {}
+    if tc.get("trans_sw", False):
+        for r, sp_, f in folds + tfolds:
+            SWM[(r, sp_)] = _sw_mats(f, ctx)
+        log(f"[trans] sw2152 + fl512 query-query affinity built for {len(SWM)} folds ({time.time() - t0:.0f}s)")
     sift_bg = bool(tc.get("sift_bg", False))
-    PF = PAIR_FEATS + (KP_FEATS if KP else []) + (RICH_FEATS if RICH else []) + (SIFT_BG_FEATS if sift_bg else [])
+    sift_bg_v2 = bool(tc.get("sift_bg_v2", False))
+    PF = PAIR_FEATS + (KP_FEATS if KP else []) + (RICH_FEATS if RICH else []) + (SIFT_BG_FEATS if sift_bg else []) + (SIFT_BG_V2_FEATS if sift_bg_v2 else []) + (SW_FEATS if SWM else [])
     if ctx.pc is not None:
         pairs = []
         for r, sp_, f in folds + tfolds:
@@ -275,6 +316,12 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
             if RICH:
                 top_kr = RICH[(r, sp_)][3]
                 pairs += [(f.query_rows[i], f.query_rows[int(j)]) for i in range(len(top_kr)) for j in top_kr[i]]
+            if SWM:
+                for i in range(len(SWM[(r, sp_)][4])):
+                    for j in SWM[(r, sp_)][4][i]:
+                        pairs.append((f.query_rows[i], f.query_rows[int(j)]))
+                    for j in SWM[(r, sp_)][5][i]:
+                        pairs.append((f.query_rows[i], f.query_rows[int(j)]))
         ctx.pc.ensure(pairs)
     post_cv = _posteriors(cv, qdf, T, beta)
     post_te = _posteriors(test, tq, T, beta)
@@ -297,7 +344,8 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
     ident = data.meta.identity.values
     ptabs = []
     for r, sp_, f in folds:
-        pt = _pair_table(f, ctx, k, post_cv, r, KP.get((r, sp_)), RICH.get((r, sp_)), sift_bg=sift_bg)
+        pt = _pair_table(f, ctx, k, post_cv, r, KP.get((r, sp_)), RICH.get((r, sp_)),
+                         sift_bg=sift_bg, swm=SWM.get((r, sp_)), sift_bg_v2=sift_bg_v2)
         pt["y"] = (ident[f.query_rows[pt.i.values]] == ident[f.query_rows[pt.j.values]]).astype(int)
         pt["group"] = ident[f.query_rows[pt.i.values]]
         pt["split"] = r; pt["species"] = sp_
@@ -314,7 +362,9 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
         f"AUC cos only={roc_auc_score(pcv.y, pcv.cos_l2):.4f}, pairs={len(pcv)} ({time.time() - t0:.0f}s)")
     tt = []
     for r, sp_, f in tfolds:
-        pt = _pair_table(f, ctx, k, post_te, r, KP.get((r, sp_)), RICH.get((r, sp_)), sift_bg=sift_bg); pt["split"] = r; pt["species"] = sp_
+        pt = _pair_table(f, ctx, k, post_te, r, KP.get((r, sp_)), RICH.get((r, sp_)),
+                         sift_bg=sift_bg, swm=SWM.get((r, sp_)), sift_bg_v2=sift_bg_v2)
+        pt["split"] = r; pt["species"] = sp_
         tt.append(pt)
     pte = pd.concat(tt, ignore_index=True)
     if bag_test:
@@ -339,9 +389,12 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
     grid_alpha = tc.get("alphas", [0.0, 0.2, 0.4, 0.6, 0.8])
     grid_tau = tc.get("tau_e", [0.5, 0.7, 0.9])
     scales = np.exp(np.arange(-1.5, 1.51, 0.25))
+    nested_tune = bool(tc.get("nested_tune", False))
+    outer_picks = {}
     best = {}
     for sp_ in SPECIES:
         res = []
+        sp_splits = [r for r, s2, _ in folds if s2 == sp_]
         for alpha in grid_alpha:
             for tau_e in (grid_tau if alpha > 0 else [1.0]):
                 aps = {s: [] for s in range(len(scales))}
@@ -356,18 +409,39 @@ def apply_transductive(cfg, ctx, data, splits, cv, qdf, test, tq, T, beta, log=p
                 for si, sc in enumerate(scales):
                     res.append((alpha, tau_e, float(np.log(sc)), float(np.mean(aps[si])), aps[si]))
         df = pd.DataFrame(res, columns=["alpha", "tau_e", "log_new_scale", "mapv", "per_split"])
-        b = df.loc[df.mapv.idxmax()]
         off0 = df[df.alpha == 0]; off = off0.loc[off0.mapv.idxmax()]
-        best[sp_] = dict(alpha=float(b.alpha), tau_e=float(b.tau_e), log_new_scale=float(b.log_new_scale),
-                         map=float(b.mapv), per_split=list(b.per_split), map_off=float(off.mapv),
-                         per_split_off=list(off.per_split),
-                         grid=[(float(x.alpha), float(x.tau_e), float(x.log_new_scale), [float(v) for v in x.per_split])
-                               for x in df.itertuples()])
-        log(f"[trans] {sp_}: best alpha={b.alpha} tau_e={b.tau_e} new_scale=e^{b.log_new_scale:.1f} "
-            f"(conn_only={conn_only}) MAP={b.mapv:.4f} (alpha=0: {off.mapv:.4f})")
+        if nested_tune and len(sp_splits) > 1:
+            ps_mat = np.array(df.per_split.tolist())
+            nested_ps, picks = [], []
+            for idx_r, r_id in enumerate(sp_splits):
+                train_mean = np.delete(ps_mat, idx_r, axis=1).mean(1)
+                br = df.iloc[int(np.argmax(train_mean))]
+                nested_ps.append(float(ps_mat[int(np.argmax(train_mean)), idx_r]))
+                pk = dict(alpha=float(br.alpha), tau_e=float(br.tau_e), log_new_scale=float(br.log_new_scale))
+                outer_picks[(r_id, sp_)] = pk
+                picks.append(pk)
+            b_al = float(np.median([p["alpha"] for p in picks]))
+            b_ta = float(np.median([p["tau_e"] for p in picks]))
+            b_sc = float(np.median([p["log_new_scale"] for p in picks]))
+            best[sp_] = dict(alpha=b_al, tau_e=b_ta, log_new_scale=b_sc,
+                             map=float(np.mean(nested_ps)), per_split=nested_ps,
+                             map_off=float(off.mapv), per_split_off=list(off.per_split),
+                             grid=[(float(x.alpha), float(x.tau_e), float(x.log_new_scale), [float(v) for v in x.per_split])
+                                   for x in df.itertuples()])
+            log(f"[trans] {sp_} NESTED: consensus alpha={b_al:.2f} tau_e={b_ta:.2f} new_scale=e^{b_sc:.2f} "
+                f"(conn_only={conn_only}) nested_MAP={np.mean(nested_ps):.4f} (alpha=0: {off.mapv:.4f})")
+        else:
+            b = df.loc[df.mapv.idxmax()]
+            best[sp_] = dict(alpha=float(b.alpha), tau_e=float(b.tau_e), log_new_scale=float(b.log_new_scale),
+                             map=float(b.mapv), per_split=list(b.per_split), map_off=float(off.mapv),
+                             per_split_off=list(off.per_split),
+                             grid=[(float(x.alpha), float(x.tau_e), float(x.log_new_scale), [float(v) for v in x.per_split])
+                                   for x in df.itertuples()])
+            log(f"[trans] {sp_}: best alpha={b.alpha} tau_e={b.tau_e} new_scale=e^{b.log_new_scale:.1f} "
+                f"(conn_only={conn_only}) MAP={b.mapv:.4f} (alpha=0: {off.mapv:.4f})")
     # export: out-of-fold CV probabilities with each species' chosen alpha / tau_e / new_scale (for team-blend tuning)
     for r, sp_, f in folds:
-        bb = best[sp_]
+        bb = outer_picks.get((r, sp_), best[sp_])
         keys, outp, conn = run_fold(post_cv, pcv[(pcv.split == r) & (pcv.species == sp_)], f, r, bb["alpha"], bb["tau_e"],
                                     tc.get("consensus", True))
         sc_b = np.exp(bb["log_new_scale"])

@@ -21,9 +21,13 @@ def embed_unsupervised(X, meta, kind, **kw):
         for sp in ("hyena", "leopard"):
             m = (meta.species == sp).values
             Z = l2n(X[m]); mu = Z.mean(0)
-            _, s, Vt = np.linalg.svd(Z - mu, full_matrices=False)
-            ev = s ** 2 / (len(Z) - 1)
-            out[m] = (Z - mu) @ (Vt[:d].T / np.sqrt(ev[:d] + eps * ev.mean()))
+            Zc = Z - mu
+            C = (Zc.T @ Zc) / max(len(Z) - 1, 1)
+            ev, V = np.linalg.eigh(C)
+            idx = np.argsort(ev)[::-1]
+            ev = np.maximum(ev[idx], 0.0)
+            Vd = V[:, idx[:d]]
+            out[m] = Zc @ (Vd / np.sqrt(ev[:d] + eps * ev.mean()))
         return l2n(out)
     if kind == "qe":
         base = kw["base"]; k, alpha = kw.get("k", 3), kw.get("alpha", 3.0)
@@ -42,9 +46,11 @@ def fit_lda(Zg, labels, gamma=0.2, d_out=256, pca_d=512, sides=None, w_cross=0.0
     """Regularised LDA / learned whitening on GALLERY labels only.
     Zg: gallery embeddings (L2-normalised). Returns projection function z -> L2-normalised projected z."""
     mu = Zg.mean(0)
-    _, s, Vt = np.linalg.svd(Zg - mu, full_matrices=False)
-    Vp = Vt[:pca_d].T
-    Y = (Zg - mu) @ Vp
+    Zc = (Zg - mu).astype(np.float64)
+    C = (Zc.T @ Zc) / max(len(Zc) - 1, 1)
+    _, V = np.linalg.eigh(C)
+    Vp = V[:, ::-1][:, :pca_d]
+    Y = Zc @ Vp
     uniq, inv, cnt = np.unique(labels, return_inverse=True, return_counts=True)
     means = np.zeros((len(uniq), Y.shape[1])); np.add.at(means, inv, Y); means /= cnt[:, None]
     multi = cnt[inv] >= 2
@@ -115,3 +121,65 @@ def baseline_predict(id_scores, ids, tau, k=5):
         labs = labs[:pos] + [NEW] + labs[pos:]
         preds.append(labs[:k])
     return preds
+
+
+def rg_diff(Z, labels, K=10):
+    """Gallery-only hubness: mean top-K cosine to DIFFERENT-identity gallery images."""
+    Sgg = Z @ Z.T
+    Sgg_diff = np.where(labels[:, None] == labels[None, :], -2.0, Sgg)
+    k = min(K, max(1, len(Z) - 1))
+    return np.partition(Sgg_diff, -k, axis=1)[:, -k:].mean(1).astype(np.float32)
+
+
+def _sw_basis(Zg, m0, labels, reg=0.5):
+    names, inv, cnt = np.unique(labels, return_inverse=True, return_counts=True)
+    means = np.zeros((len(names), Zg.shape[1]), dtype=np.float64)
+    np.add.at(means, inv, Zg)
+    means /= cnt[:, None]
+    multi = cnt[inv] >= 2
+    Zw = (Zg[multi] - means[inv[multi]]).astype(np.float64)
+    Sw = (Zw.T @ Zw) / max(len(Zw), 1)
+    ew, vw = np.linalg.eigh(Sw)
+    ew = np.maximum(ew, 0.0)
+    scale = (1.0 / np.sqrt((1.0 - reg) * ew + reg * max(ew.mean(), 1e-12))).astype(np.float32)
+    return vw.astype(np.float32), scale, means, cnt
+
+
+def fit_sw_and_fullda(Zg, glab, reg=0.5, d_lda=512, gside=None):
+    """100% gallery-only Full 2152-dim Sw whitening, Full-2152d Fisher LDA, cl2 centering, and optional Side-Sw."""
+    Zg = np.asarray(Zg, dtype=np.float32)
+    m0 = Zg.mean(0).astype(np.float32)
+    vw, scale, means, cnt = _sw_basis(Zg, m0, glab, reg=reg)
+    W_sw = vw * scale[None, :]
+    Mc_w = ((means - means.mean(0)) @ vw.astype(np.float64)) * scale.astype(np.float64)[None, :]
+    Sb_w = (Mc_w * cnt[:, None]).T @ Mc_w / max(cnt.sum(), 1)
+    _, Eb = np.linalg.eigh(Sb_w)
+    W_fl = (W_sw @ Eb[:, ::-1][:, :d_lda].astype(np.float32))
+    out = {
+        "cl2": lambda Z, m0=m0: l2n(Z - m0).astype(np.float32),
+        "sw": lambda Z, m0=m0, W=W_sw: l2n((Z - m0) @ W).astype(np.float32),
+        "fl512": lambda Z, m0=m0, W=W_fl: l2n((Z - m0) @ W).astype(np.float32),
+    }
+    if gside is not None:
+        glab_side = np.array([f"{a}|{b}" if b in ("L", "R") else a for a, b in zip(glab, gside)])
+        vws, scs, _, _ = _sw_basis(Zg, m0, glab_side, reg=reg)
+        W_ssw = vws * scs[None, :]
+        out["ssw"] = lambda Z, m0=m0, W=W_ssw: l2n((Z - m0) @ W).astype(np.float32)
+    return out
+
+
+def vp_compat_stats(Zg, labels, vps, min_n=8):
+    """Mean and std of same-identity cosines per viewpoint pair from gallery labels only."""
+    import pandas as pd
+    acc = {}
+    for _, idx in pd.Series(np.arange(len(labels))).groupby(labels):
+        idx = idx.values
+        if len(idx) < 2:
+            continue
+        S = Zg[idx] @ Zg[idx].T
+        iu = np.triu_indices(len(idx), 1)
+        for a, b, x in zip(vps[idx][iu[0]], vps[idx][iu[1]], S[iu]):
+            k = (a, b) if a <= b else (b, a)
+            acc.setdefault(k, []).append(float(x))
+    return {k: (float(np.mean(v)), float(max(np.std(v), 0.05))) for k, v in acc.items() if len(v) >= min_n}
+

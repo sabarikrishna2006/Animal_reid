@@ -7,7 +7,11 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
-NON_FEATURES = {"p", "p_lgb", "p_xgb", "p_cat", "p_lr", "p_mlp", "qi", "cand", "query_id", "cand_id", "y", "split", "group", "species", "is_new", "truth"}
+NON_FEATURES = {"p", "p_lgb", "p_xgb", "p_cat", "p_lr", "p_mlp", "p_hgb", "qi", "cand", "query_id", "cand_id", "y", "split", "group", "species", "is_new", "truth"}
+MONO_SIM_POS = ("max_l2", "max_pcaw", "max_lda", "hub_l2", "hub_lda", "lnb_rimg",
+                "max_lda512", "max_slda512", "max_sw2152", "max_ssw2152",
+                "max_sw_raw", "max_ssw_raw", "max_fl512", "max_fl512_raw", "max_cl2",
+                "max_krec_sw10", "max_diff_sw")
 MONO_POS = ("max_l2", "max_pcaw", "max_lda", "sift_inl_max", "sift_inl_strict_max")
 
 LGB_PARAMS = dict(objective="binary", learning_rate=0.03, num_leaves=31, min_child_samples=20,
@@ -27,20 +31,26 @@ class LGBModel:
         p = dict(self.params)
         if self.mono:
             if "sift_inl_clean2" in feats:
-                mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean2", "hub_l2", "hub_lda", "lnb_rimg",
-                            "max_lda512", "max_slda512", "max_sw2152", "max_ssw2152")
+                sift_mono = ("sift_inl_clean2",)
             elif "sift_inl_clean" in feats:
-                mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean")
+                sift_mono = ("sift_inl_clean",)
             else:
-                mono_set = MONO_POS
+                sift_mono = ("sift_inl_max", "sift_inl_strict_max")
+            mono_set = set(MONO_SIM_POS) | set(sift_mono)
             p["monotone_constraints"] = [1 if f in mono_set else 0 for f in feats]
             p["monotone_constraints_method"] = "advanced"
+        import gc
         tr, va = next(GroupShuffleSplit(1, test_size=0.15, random_state=0).split(X, y, groups))
-        dtr = lgb.Dataset(X[tr], y[tr], feature_name=feats, free_raw_data=False)
-        dva = lgb.Dataset(X[va], y[va], reference=dtr)
+        Xtr = X[tr]; dtr = lgb.Dataset(Xtr, y[tr], feature_name=feats, free_raw_data=True).construct()
+        del Xtr
+        Xva = X[va]; dva = lgb.Dataset(Xva, y[va], reference=dtr, free_raw_data=True).construct()
+        del Xva
+        gc.collect()
         self.model = lgb.train(p, dtr, self.max_rounds, valid_sets=[dva],
                                callbacks=[lgb.early_stopping(100, verbose=False)])
         self.best_iter = self.model.best_iteration
+        del dtr, dva
+        gc.collect()
         return self
 
     def predict(self, X):

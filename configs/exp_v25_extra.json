@@ -1,0 +1,42 @@
+{
+  "exp_slug": "v25_extra",
+  "paths": {
+    "lnbnn": "data/cache/lnbnn_hnsw"
+  },
+  "cv": {
+    "enc_thr": { "hyena": 0.2, "leopard": 0.3 },
+    "p_move": { "hyena": 0.5, "leopard": 0.5 },
+    "f_new_id": { "hyena": 0.1, "leopard": 0.2 },
+    "max_new_id_size": 1000000
+  },
+  "retrieval": {
+    "n_cand": 30,
+    "lnbnn": true,
+    "lnbnn_img": true,
+    "lnbnn_cand": 8,
+    "lnbnn_ucand": 12,
+    "lnbnn_sift_imgs": 2,
+    "lnbnn_uimg_sift_imgs": 1,
+    "lnbnn_nprobe": 64,
+    "krec": true,
+    "bg_clean": true,
+    "v25_stage1": true,
+    "bg_clean_v2_img": true,
+    "sw_cand": 15,
+    "fl_cand": 15,
+    "krec_sw_cand": 10,
+    "sift_imgs_sw": 2
+  },
+  "sift": { "top_ids": 15, "imgs_per_id": 8 },
+  "transductive": {
+    "enabled": true,
+    "features": true,
+    "consensus": false,
+    "alphas": [0.0, 0.4, 0.6, 0.8],
+    "tau_e": [0.3, 0.4, 0.5, 0.6, 0.7]
+  },
+  "model": {
+    "methods": ["softmax"],
+    "final_method": "softmax"
+  }
+}
