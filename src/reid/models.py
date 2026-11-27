@@ -28,7 +28,8 @@ class LGBModel:
         if self.mono:
             if "sift_inl_clean2" in feats:
                 mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean2", "hub_l2", "hub_lda", "lnb_rimg",
-                            "max_lda512", "max_slda512", "max_sw2152", "max_ssw2152")
+                            "max_lda512", "max_slda512", "max_sw2152", "max_ssw2152",
+                            "max_proto_sw2152", "max_dba_sw2152")
             elif "sift_inl_clean" in feats:
                 mono_set = ("max_l2", "max_pcaw", "max_lda", "sift_inl_clean")
             else:
@@ -94,14 +95,24 @@ class CatModel:
 class MLPModel:
     def fit(self, X, y, groups, feats):
         from sklearn.neural_network import MLPClassifier
-        self.model = make_pipeline(SimpleImputer(strategy="median", add_indicator=True), StandardScaler(),
-                                   MLPClassifier(hidden_layer_sizes=(64, 32), alpha=1e-3, early_stopping=True,
-                                                 validation_fraction=0.15, max_iter=200, random_state=2026))
-        self.model.fit(X, y)
+        from sklearn.preprocessing import FunctionTransformer
+        clip = FunctionTransformer(lambda a: np.clip(a, -6.0, 6.0))
+        self.models = []
+        for sd in (2026, 2027):
+            m = make_pipeline(
+                SimpleImputer(strategy="median"),
+                StandardScaler(),
+                clip,
+                MLPClassifier(hidden_layer_sizes=(128, 64), activation="relu", alpha=0.05,
+                              batch_size=512, learning_rate_init=1e-3, early_stopping=True,
+                              validation_fraction=0.12, n_iter_no_change=6, max_iter=45, random_state=sd),
+            )
+            m.fit(X, y)
+            self.models.append(m)
         return self
 
     def predict(self, X):
-        return self.model.predict_proba(X)[:, 1]
+        return np.mean([m.predict_proba(X)[:, 1] for m in self.models], axis=0)
 
 
 def make_model(kind, **kw):

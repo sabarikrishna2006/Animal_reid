@@ -1,0 +1,8 @@
+{
+  "exp_id": "team_blend_lnb39_swproto_g2q_mlp",
+  "public_lb": 0.8869,
+  "dev_cv8_shared": 0.8878,
+  "dev_cv8_half": 0.89118,
+  "sab_cv5": 0.93385,
+  "kept": true
+}

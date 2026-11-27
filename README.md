@@ -24,13 +24,13 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 
 
 
-## Final Submission & Team Blend (Rank 1 — `0.88605`)
-**`sub_team_blend_lnb38_v28_g2q_safe.csv` (`sub-v30-2026-11-27-blend-lnb38`): Public LB `0.88605` (Rank 1)** (second selected submission: `sub_team_blend_lnb36_sw2152_v25.csv`, `sub-v29-2026-11-26-blend-lnb36`, Public LB `0.88585`; third: `sub_team_blend_lnb34_sw2152.csv`, `sub-v26-2026-11-25-blend-lnb34`, Public LB `0.88424`).
+## Final Submission & Team Blend (Rank 1 — `0.88690`)
+**`sub_team_blend_lnb39_swproto_g2q_mlp.csv` (`sub-v31-2026-11-27-blend-lnb39`): Public LB `0.88690` (Rank 1)** (second selected submission: `sub_team_blend_lnb38_v28_g2q_safe.csv`, `sub-v30-2026-11-27-blend-lnb38`, Public LB `0.88605`; third: `sub_team_blend_lnb36_sw2152_v25.csv`, `sub-v29-2026-11-26-blend-lnb36`, Public LB `0.88585`).
 Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**. Full report: **[`reports/final_report.md`](reports/final_report.md)**.
 
 Our final solution blends the temperature-calibrated label probability distributions of two independent, strictly zero-leakage pipelines:
-- **Sabari Pipeline (`50%`)**: Equal 5-model monotone LightGBM ensemble of `exp_v17_bgclean_conn`, `exp_v19_bgclean_v2`, `exp_v23_fullbg_lda512`, `exp_v24_fullbg_sw2152`, and `exp_v25_fullbg_sw2152_lda512` (`src/reid/`).
-- **Dev Pipeline (`50%`)**: Equal 50/50 dual-pool blend of `dev_bg_sw2152_prop` (MiewID+LDA pool upgraded with `sw2152` + hubness + log-norm) and `dev_v10_sw2152_lprop` (`v10` expanded pool + `sw2152` + nested learned BG-filtered propagation) (`dev_pipeline/`).
+- **Sabari Pipeline (`50%`)**: Equal 5-model monotone LightGBM ensemble of `exp_v17_bgclean_conn`, `exp_v19_bgclean_v2`, `exp_v24_fullbg_sw2152`, `exp_v25_fullbg_sw2152_lda512`, and `exp_v26_fullbg_sw2152_proto` (`src/reid/`).
+- **Dev Pipeline (`50%`)**: Equal 50/50 dual-pool blend of `dev_bg_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`) and `dev_v10_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`) (`dev_pipeline/`).
 
 ### Key Zero-Leakage Discoveries
 1. **Two-Stage Camera-Trap SIFT Background Filtering (`bg_clean` & SIFT Killers)**:

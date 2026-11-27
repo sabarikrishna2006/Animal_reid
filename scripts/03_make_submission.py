@@ -41,7 +41,7 @@ def main():
         from reid.calibration import em_prior, prior_shift
         data, ctx, splits = prepare(cfg)
         tabs = build_tables(cfg, data, ctx, splits)
-        from reid.pipeline import load_extra_cv, attach_hubness, attach_rimg, attach_lda512, attach_sw2152
+        from reid.pipeline import load_extra_cv, attach_hubness, attach_rimg, attach_lda512, attach_sw2152, attach_sw_proto
         extra = load_extra_cv(cfg)
         cv_in, test_in = tabs["cv"], tabs["test"]
         if cfg["model"].get("hubness", False):
@@ -52,6 +52,8 @@ def main():
             cv_in, test_in, extra = attach_lda512(cfg, data, ctx, splits, cv_in, test_in, extra)
         if cfg["model"].get("sw2152", False):
             cv_in, test_in, extra = attach_sw2152(cfg, data, ctx, splits, cv_in, test_in, extra)
+        if cfg["model"].get("sw_proto", False):
+            cv_in, test_in, extra = attach_sw_proto(cfg, data, ctx, splits, cv_in, test_in, extra)
         out = run_second_level(cv_in, cfg, test=test_in, extra=extra)
         cv, qdf, T, test, tq = out["cv"], out["qdf"], out["T"], out["test"], out["tqdf"]
         method = cfg["model"].get("final_method", "softmax")

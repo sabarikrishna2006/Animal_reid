@@ -556,6 +556,83 @@ def attach_sw2152(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     return cv, test, extra
 
 
+def _fold_sw_proto(fold, ctx, split_id):
+    """100% gallery-only Sw2152 Class Centroid Prototype + Same-ID Gallery DBA features."""
+    from .retrieval import l2n
+    Zg0 = ctx.emb["l2"][fold.gallery_rows]
+    Zq0 = ctx.emb["l2"][fold.query_rows]
+    glab = fold.gallery_labels
+    m0 = Zg0.mean(0)
+    Zgi, Zqi = _sw_whiten_2152(Zg0, Zq0, m0, glab, gamma=0.5)
+
+    names, inv = np.unique(glab, return_inverse=True)
+    nid = len(names); nq = len(fold.query_ids)
+    members = [np.where(inv == j)[0] for j in range(nid)]
+
+    # 1. Normalized class centroid prototype in Sw2152 space (no prototype hubness!)
+    P = l2n(np.vstack([Zgi[cols].mean(0) for cols in members]).astype(np.float32))
+    Ip = (Zqi @ P.T).astype(np.float32)
+
+    # 2. Same-ID Gallery DBA (30% centroid smoothing) + gallery-only different-ID hubness
+    Zgd = l2n((0.70 * Zgi + 0.30 * P[inv]).astype(np.float32))
+    Sd = (Zqi @ Zgd.T) - 0.50 * _rg_diff(Zgd, glab, K=10)[None, :]
+    Id = np.full((nq, nid), -9.0, np.float32)
+    for j, cols in enumerate(members):
+        Id[:, j] = Sd[:, cols].max(1)
+
+    top2_p = -np.sort(-Ip, axis=1)[:, :2]
+    top2_d = -np.sort(-Id, axis=1)[:, :2]
+    id_pos = {n: j for j, n in enumerate(names)}
+    q_info = {}
+    for i, qid in enumerate(fold.query_ids):
+        p1 = float(top2_p[i, 0]); p2 = float(top2_p[i, 1]) if nid > 1 else p1
+        d1 = float(top2_d[i, 0]); d2 = float(top2_d[i, 1]) if nid > 1 else d1
+        q_info[(split_id, qid)] = (id_pos, Ip[i], Id[i], p1, p1 - p2, d1, d1 - d2)
+    return q_info
+
+
+def attach_sw_proto(cfg, data, ctx, splits, cv, test, extra=None, log=print):
+    """Attach 100% gallery-only Sw2152 Centroid Prototype + Same-ID DBA features."""
+    t0 = time.time()
+    q_info = {}
+    for r, e in enumerate(splits):
+        for sp in SPECIES:
+            q_info.update(_fold_sw_proto(e[sp][0], ctx, r))
+    if test is not None:
+        for sp in SPECIES:
+            q_info.update(_fold_sw_proto(test_fold(data, sp), ctx, -1))
+    if extra is not None and cfg["model"].get("extra_cv"):
+        from .io import load_config, ROOT
+        c2 = load_config(ROOT / cfg["model"]["extra_cv"])
+        d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
+        for r, e in enumerate(s2):
+            for sp in SPECIES:
+                q_info.update(_fold_sw_proto(e[sp][0], ctx2, r + 10))
+
+    cols = ["max_proto_sw2152", "max_dba_sw2152", "gap_proto_sw2152", "gap_dba_sw2152",
+            "q_proto_sw2152_max", "q_proto_sw2152_gap", "q_dba_sw2152_max", "q_dba_sw2152_gap"]
+
+    def _apply(df):
+        if df is None:
+            return None
+        df = df.copy()
+        rows = []
+        for r, q, c in zip(df["split"].values, df["query_id"].values, df["cand_id"].values):
+            id_pos, ip, id_, p1, pg, d1, dg = q_info[(int(r), q)]
+            j = id_pos.get(c, -1)
+            if j >= 0:
+                vp, vd = float(ip[j]), float(id_[j])
+                rows.append((vp, vd, p1 - vp, d1 - vd, p1, pg, d1, dg))
+            else:
+                rows.append((-9.0, -9.0, 9.0, 9.0, p1, pg, d1, dg))
+        df[cols] = np.array(rows, dtype=np.float32)
+        return df
+
+    cv = _apply(cv); test = _apply(test); extra = _apply(extra)
+    log(f"[sw_proto] attached gallery-only Sw2152 Centroid Prototype + DBA features in {time.time() - t0:.1f}s")
+    return cv, test, extra
+
+
 def _add_bg_clean_v2(df):
     """Full-frame static camera-trap killer (opt-in bg_clean_v2):
     Flags 0-deg rotation matches whose unique-ID LNBNN share (lnb_uimg / lnb_img) is < 0.35
