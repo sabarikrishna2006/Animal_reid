@@ -1,4 +1,4 @@
-# Dev's pipeline (second half of the final team blend)
+# Two-Round Stacked Pipeline (`dev_pipeline/` — second half of the final team blend)
 
 `wildlife_reid_solution.ipynb` is a self-contained notebook (executed outputs included).
 Run it from this folder; it finds the competition files under the repository's `data/` folder (or on Kaggle) by itself.

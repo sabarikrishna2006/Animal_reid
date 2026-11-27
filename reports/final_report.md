@@ -21,7 +21,7 @@ No validation set is given, so we simulate the test:
 - Result: honest CV closely tracks public LB and **ranks methods in the exact same order** from `0.76983` up to `0.88424`.
 
 ## 3. Pipeline (two independent pipelines, blended)
-**Dev's pipeline** (`dev_pipeline/`):
+**Pipeline B — Two-Round Stacked Dual-Pool Pipeline** (`dev_pipeline/`):
 1. **Gallery-only metric learning & hubness**: centred + L2 MiewID cosine; `PCA(256/512) -> LDA` (shrinkage 0.3–0.5); viewpoint-conditioned `Side-LDA` (shrinkage 0.3 on `(identity, L/R flank)`); **Full 2,152-dim within-class covariance whitening (`sw2152`: $S_w(\gamma)^{-1/2}$ with $\gamma=0.5$, zero PCA truncation)**; and gallery-only different-identity hubness correction (`r_g_diff`, mean top-10 cosine to other gallery identities).
 2. **Candidate generation & Missing-Candidate Veto Fix**: top-20 MiewID candidates expanded with top-5 image-level LNBNN (`lnb_img`) candidates + k-reciprocal re-ranking (`v10`), fixing false vetoes when an identity is found by only one retrieval branch.
 3. **SIFT verification + Two-Stage Camera-Trap SIFT Killers**: RootSIFT, 2-NN + Lowe ratio 0.8, one-to-one, RANSAC homography and similarity inliers (top-5 identities x 20 images, ranks 6-10 x 2 images, plus `lnb_img`-guided gallery images).
@@ -30,7 +30,7 @@ No validation set is given, so we simulate the test:
 4. **High-recall `nprobe=64` LNBNN one-vs-many keypoint matching (HotSpotter, Crall et al. 2013)**: each query descriptor is matched against all training descriptors of its species (`faiss-cpu`); background keypoints matching across multiple unrelated gallery identities are masked (`lnb_uimg`, `lnb_rimg`).
 5. **Two-round LightGBM + Strictly Nested Learned BG-Filtered Query–Query Graph Propagation (`lprop`)**: Round-1/Round-2 `P(match | query, identity)` + `P(new | query)` + LambdaRank re-ranker, followed by a strictly nested out-of-fold pairwise classifier (`AUC 0.9777`) over MiewID + background-cleaned SIFT/keypoint query–query edges and Zhou label propagation.
 
-**Sabari's pipeline** (`src/reid/`, configs `exp_v17_bgclean_conn.json`, `exp_v19_bgclean_v2.json`, `exp_v23_fullbg_lda512.json`, `exp_v24_fullbg_sw2152.json`): raw / PCA-whitened / LDA / `PCA(512)-LDA` / `Side-LDA` / `sw2152` cosine retrieval + `r_g_diff` hubness (top-30 + `lnb_img` expansion), wide SIFT verification + Stage-1/Stage-2 camera-trap SIFT killers, `nprobe=64` background-masked LNBNN, LightGBM reranker + $P(\text{new})$ + softmax temperature trained on mixed split designs, keypoint query graph + Zhou label propagation with degree-aware isolated-node scaling (`conn_new_scale`).
+**Pipeline A — Single-Round Monotone Pipeline** (`src/reid/`, configs `exp_v17_bgclean_conn.json`, `exp_v19_bgclean_v2.json`, `exp_v23_fullbg_lda512.json`, `exp_v24_fullbg_sw2152.json`, `exp_v25_fullbg_sw2152_lda512.json`, `exp_v26_fullbg_sw2152_proto.json`): raw / PCA-whitened / LDA / `PCA(512)-LDA` / `Side-LDA` / `sw2152` cosine retrieval + `r_g_diff` hubness (top-30 + `lnb_img` expansion), wide SIFT verification + Stage-1/Stage-2 camera-trap SIFT killers, `nprobe=64` background-masked LNBNN, LightGBM reranker + $P(\text{new})$ + softmax temperature trained on mixed split designs, keypoint query graph + Zhou label propagation with degree-aware isolated-node scaling (`conn_new_scale`).
 
 **Blend**: 50/50 average of the two pipelines' calibrated label probability distributions via `scripts/03_make_submission.py --blend`.
 
@@ -42,7 +42,7 @@ No validation set is given, so we simulate the test:
 | `sub-v01` (`sample_submission.csv`) | — | 0.31113 | All `new_individual` probe (~31.1% test novelty rate) |
 | `sub-v02` (`sub_baseline_rawcos.csv`) | 0.8486 (CV v1) | 0.76983 | Raw L2 cosine + fixed threshold baseline |
 | `sub-v03` (`sub_g5_final.csv`) | 0.9052 (CV v1) | 0.84116 | Full Gate-5 pipeline (PCAW/LDA + SIFT RANSAC + LightGBM + graph prop) |
-| `sub-v05` (`sub_team_blend.csv`) | 0.8658 (shared CV) | 0.85813 | First 50/50 probability blend of Sabari `v8` (0.84856) + Dev `v5` (0.84102) |
+| `sub-v05` (`sub_team_blend.csv`) | 0.8658 (shared CV) | 0.85813 | First 50/50 probability blend of `src/reid/` `v8` (0.84856) + `dev_pipeline/` `v5` (0.84102) |
 | `sub-v09` (`sub_team_blend_lnb3.csv`) | 0.9176 (CV v1) | 0.86515 | + One-vs-many LNBNN (`K=10`) + Keypoint Query Graph (`kpgraph`) |
 | `sub-v10` (`sub_team_blend_lnb6.csv`) | 0.9194 (CV v1) | 0.86749 | + Image-level & strict `K=3` LNBNN + Zhou propagation (`v9`) |
 | `sub-v11` (`sub_team_blend_lnb7.csv`) | 0.9207 (CV v1) / 0.8764 (shared) | 0.88073 | + `lnb_img` candidate expansion + `lnb_img`-guided RANSAC SIFT + k-reciprocal (`v10`) |
@@ -53,7 +53,7 @@ No validation set is given, so we simulate the test:
 | **`sub-v26` (`sub_team_blend_lnb34_sw2152.csv`)** | **0.8894 (5-split GBDT OOF)** | **0.88424 (Rank 1)** | **+ Gallery-only `PCA(512)-LDA` + `Side-LDA` + Full 2,152-d $S_w^{-1/2}$ Whitening (`sw2152`) + `r_g_diff`** |
 | `sub-v27` (`sub_v27_5paper_full_sift_lnbnn.csv`) | 0.86456 (8-split Honest R1 CV) | 0.86594 | Standalone Round-1 5-paper model (`Sw2152` Diffusion/DBA + Cross-Flank Procrustes + AS-Norm + PLDA + Sinkhorn OT); verified Honest CV tracks Public LB within `0.0014` |
 | `sub-v28` (`sub_team_blend_lnb35_5paper_balanced.csv`) | — | 0.88351 | Post-hoc rank-surrogate blend of `lnb34` + standalone `v27` (dropped; confirmed blending requires raw `.probs.pkl` before propagation) |
-| **sub-v29 (sub_team_blend_lnb36_sw2152_v25.csv)** | **0.88571 (8-split Dev) / 0.93381 (5-split Sabari)** | **0.88585 (Rank 1)** | **+ Dual-pool Full 2,152-d Sw Whitening (dev_bg_sw2152_prop + dev_v10_sw2152_lprop, 7/8 splits) + 5-model monotone LGB Sabari ensemble (17, v19, v23, v24, v25)** |
+| **sub-v29 (sub_team_blend_lnb36_sw2152_v25.csv)** | **0.88571 (8-split CV) / 0.93381 (5-split CV v1)** | **0.88585 (Rank 1)** | **+ Dual-pool Full 2,152-d Sw Whitening (dev_bg_sw2152_prop + dev_v10_sw2152_lprop, 7/8 splits) + 5-model monotone LGB ensemble (17, v19, v23, v24, v25)** |
 
 ### B. 5-Split Open-Set CV Ablation of Gallery-Only Linear Metric Learning (`v23` & `v24`)
 | Retrieval / Reranker Configuration (Strictly Gallery-Fitted) | Overall 5-Split CV MAP@5 | Hyena MAP@5 | Leopard MAP@5 | Known-Only MAP@5 | Paired Gain vs. Baseline |
@@ -79,9 +79,9 @@ No validation set is given, so we simulate the test:
 | 6. Combined 5-Paper Standalone Round-1 Model (`sub-v27`, Public LB **`0.86594`**) | **`0.86456 ± 0.00519`** | **`+0.01216 ± 0.00120` ($t=10.16$)** | **`8/8`** |
 
 LNBNN alone: known-animal top-1 0.48 (MiewID 0.74), but correct where MiewID is wrong for 5.3 % of known queries; adding it
-as features improved Dev's model on all 8 splits (round-1 A/B 0.8473 -> 0.8518).
+as features improved the two-round model on all 8 splits (round-1 A/B 0.8473 -> 0.8518).
 
-**Tried and dropped** (no gain on honest CV or lower public LB): PCA-whitening and BoVW (Dev), centroid / logistic identity
+**Tried and dropped** (no gain on local CV or lower public LB): PCA-whitening and BoVW (`dev_pipeline`), centroid / logistic identity
 scores, query expansion / database-side augmentation, wide SIFT search for missed identities (~5 % recoverable), blend
 weight tuning (+0.0017 CV, -0.001 LB), stacking meta-model (+0.0013 CV), propagation of the blend (+0.0020 CV, 0.85464 LB),
 prior-shift of P(new) (0.85504), LNBNN normalisation / candidate expansion / LNBNN-guided RANSAC (<= +0.002 expected),
@@ -92,12 +92,12 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 0.035 (often only the opposite flank is in the gallery), wrong identity first 0.027, new animal not first 0.013.
 
 ## 5. Overfitting check
-- **Model level** (train vs held-out-split log loss of Dev's LightGBM models, 3 held-out splits; ![learning curves](learning_curves.png)):
+- **Model level** (train vs held-out-split log loss of the `dev_pipeline` LightGBM models, 3 held-out splits; ![learning curves](learning_curves.png)):
   P(match) validation loss is flat from ~400 to 1,500 rounds; at the 600 rounds used it is within 0.0002 of its minimum.
   P(new) validation loss is lowest at ~220 rounds and rises slowly after; at the 400 rounds used it is 0.0015 above the
   minimum, but cutting to 250 rounds does not improve MAP@5 (0.8513 vs 0.8518, better on only 2/8 splits), so ranking is
-  unaffected. Sabari's models use early stopping on grouped out-of-fold data.
-- **Leaderboard level**: every kept change was decided on honest validation first and improved most splits (LNBNN 8/8,
+  unaffected. The `src/reid/` models use early stopping on grouped out-of-fold data.
+- **Leaderboard level**: every kept change was decided on local validation first and improved most splits (LNBNN 8/8,
   keypoint graph 5/5); the public LB then moved the same way (0.85813 -> 0.86073 -> 0.86164 -> 0.86515). Changes that only
   looked good on validation by a small margin and lost on the LB were dropped, not tuned further on the public score.
   Validation (~0.866 shared CV) and public LB (0.865) agree, so there is no sign of fitting the public 30 %. The private
@@ -105,8 +105,8 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 - **Final `lnb36` (`0.88585`) Overfitting & Leakage Audit**:
   - Learning curves on held-out split 0 for `dev_bg_sw2152`: `Pair P(match)` val log-loss at iter `600` (`0.02702`) is within `+0.00008` of its minimum (`0.02694` at iter `694`); `Query P(new)` at iter `400` (`0.21770`) is within `+0.00024` of its minimum (`0.21746` at iter `299`).
   - Calibration & entropy match `lnb34` identically (`top1_prob 0.8395 vs 0.8391`, `entropy 0.6757 vs 0.6759`, `new@1 0.3902 vs 0.3920`) — zero overconfidence or threshold drift.
-  - Leave-one-out / weight-perturbation stability on test: shifting Dev/Sabari weight to `45/55` or `55/45` preserves `99.64–99.71%` top-1 agreement; dropping any single Sabari model preserves `99.89–99.96%` top-1 agreement.
-  - Zero leakage verified: `0` train/test ID overlap; all `sw2152`, `PCA(512)-LDA`, `Side-LDA`, `r_g_diff` hubness, and LNBNN transforms fit strictly on fold galleries; Round-1/Round-2 and `lprop` use strict leave-one-split-out OOF; Sabari models use `GroupShuffleSplit` early stopping + monotonic constraints (`alpha <= 0.8`).
+  - Leave-one-out / weight-perturbation stability on test: shifting pipeline blend weight to `45/55` or `55/45` preserves `99.64–99.71%` top-1 agreement; dropping any single `src/reid/` model preserves `99.89–99.96%` top-1 agreement.
+  - Zero leakage verified: `0` train/test ID overlap; all `sw2152`, `PCA(512)-LDA`, `Side-LDA`, `r_g_diff` hubness, and LNBNN transforms fit strictly on fold galleries; Round-1/Round-2 and `lprop` use strict leave-one-split-out OOF; `src/reid/` models use `GroupShuffleSplit` early stopping + monotonic constraints (`alpha <= 0.8`).
 
 ## 6. Rule compliance
 | Rule | How it is met |
@@ -135,16 +135,16 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 |---|---|---:|---:|---:|---|
 | **Version 1 (Baseline)** | `sub-v02` (`sub_baseline_rawcos.csv`) | `0.8486` (CV v1) | `0.76983` | baseline | Raw L2 MiewID cosine + fixed novelty threshold |
 | **Version 2 (Intermediate)** | `sub-v11` (`sub_team_blend_lnb7.csv`) | `0.8764` (shared) | `0.88073` | **`+0.11090`** | Dual-pipeline 50/50 blend + `lnb_img` LNBNN candidate expansion + guided RANSAC SIFT + k-reciprocal + Zhou prop |
-| **Version 3 (Best Final)** | `sub-v31` (`sub_team_blend_lnb39_swproto_g2q_mlp.csv`) | **`0.88780`** (8-split shared) / **`0.93385`** (5-split Sabari) | **`0.88690`** | **`+0.11707`** | + 2-Stage Camera-Trap SIFT Killers + Gallery-only `Sw2152` & Centroid Prototypes/DBA (`sw_proto`) + R1/R2 `G2Q` + non-tree Neural Net `MLPClassifier(128, 64)` + `sw_qq` learned `lprop` (`AUC 0.98265`) + Sabari `v26` |
+| **Version 3 (Best Final)** | `sub-v31` (`sub_team_blend_lnb39_swproto_g2q_mlp.csv`) | **`0.88780`** (8-split shared) / **`0.93385`** (5-split CV v1) | **`0.88690`** | **`+0.11707`** | + 2-Stage Camera-Trap SIFT Killers + Gallery-only `Sw2152` & Centroid Prototypes/DBA (`sw_proto`) + R1/R2 `G2Q` + non-tree Neural Net `MLPClassifier(128, 64)` + `sw_qq` learned `lprop` (`AUC 0.98265`) + `v26_fullbg_sw2152_proto` |
 
 ## 9. Limitations & Capabilities of the Best Model (Evaluation Factor 2c)
 - **Capabilities:** Near-human accuracy on same-flank multi-shot individuals (`0.93+` MAP@5 on 6+ photo IDs), robust camera-trap background rejection (zeroes static foliage/timestamp false SIFT matches), well-calibrated open-set novelty detection (`Top-1 ECE = 0.0493`, `Brier = 0.0811`, `mean P(new) = 0.3254`), and `99.57–100%` top-1 stability under blend perturbations.
 - **Limitations:** Asymmetric opposite-flank queries (left query vs. right-only gallery) remain the hardest failure mode (`MAP 0.275` leopard / `0.488` hyena) because coat spots differ across flanks and raw images/timestamps/GPS are unavailable; 1-photo gallery individuals (`0.396` leopard / `0.552` hyena) and ~`3.5%` candidate-recall misses represent the physical information ceiling of MiewID + SIFT alone.
 
 ## 10. Individual Contributions (Team NeuerXjensen — Evaluation Factor 2d & Rule 3)
-| Team Member | GitHub Account | Commits | Major Contributions |
-|---|---|---:|---|
-| **Sabari Krishna R** | `sabarikrishna2006` | 3+ | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model Sabari half `v17..v26` of the final blend). |
-| **Devyaansh** | `devyaansh-9` | 12+ | Independent `dev_pipeline/` (2-round neighbor-stacked LightGBM, `wildlife_reid_solution.ipynb`), HotSpotter LNBNN (`src/reid/lnbnn.py`), keypoint query graph (`kpgraph.py`), `lnb_img` candidate/SIFT expansion & k-reciprocal re-ranking (`v9`/`v10`, `sub-v05..v11` up to **`0.88073`**); dual-pool `dev_bg_sw2152` + `exp_v25` + `make_team_blend.py` (`sub-v18..v24`, `sub-v29` **`0.88585`**); `Sw2152` centroid prototypes/DBA (`sw_proto`), non-tree Neural Net (`MLPClassifier`), `sw_qq` learned propagation (`sub-v31` Rank 1 **`0.88690`**), Private-LB anti-overfitting verification, and the final report notebook (`Team_NeuerXjensen_Final_Report.ipynb`). |
-| **Jazl Anwar MV** | `jazpeak` | 8+ | Read and researched animal re-ID papers by **Prof. Saket Anand** and related metric-learning literature, running experiments that guided team feature design; Stage-2 full-frame camera-trap SIFT filtering, gallery hubness (`r_g_diff`), missing-candidate veto fix & learned query-query graph propagation (`lprop`); gallery-only linear metric learning (`PCA(512)-LDA`, `Side-LDA`, and full 2152-dim `Sw` whitening `sw2152`, reaching Rank 1 **`0.88424`** in `sub-v26`); `v27` research-paper experiments (identity prototypes, gallery aggregation, and cross-flank alignment, `sub-v27`); `v28` gallery-to-query competitor features (`G2Q`) and safe `new_individual` gating (`sub-v30` Rank 1 **`0.88605`**, integrated into the final **`0.88690`** blend); blend ablations (`sub-v25`, `sub-v28`, `sub-v30a`), `dev_pipeline` helper modules (`core.py`, `model2.py`, `exp_blend_check.py`), and report documentation. |
-| **Lokesh Akurathi** | `Lokesh-akurathi` | 7+ | Dual-pipeline `bg_clean` upgrades (`nprobe=64` LNBNN with `lnb_uimg`/`lnb_rimg` background-keypoint masking, Stage-1 corner camera-trap SIFT filter, and `conn_new_scale` isolated-node propagation fix driving `sub-v12..v17` up to **`0.88101`**); standalone Kaggle notebooks (`wildlife_reid_v4` `sub-v20`, `v25_v26_notebook.ipynb`), `v25` HNSW rescue + `v26` dual-model pipeline (`src/reid/dual_model.py`, `scripts/eval_blend.py`, `tests/test_v25_and_dual.py`), and experimental `alt_approach_v4.py` / `wildlife_reid_alt_approach.md`. |
+| Team Member | GitHub Account | Major Contributions |
+|---|---|---|
+| **Sabari Krishna R** | `sabarikrishna2006` | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model `src/reid/` ensemble `v17..v26` in the final blend). |
+| **Devyaansh** | `devyaansh-9` | Independent `dev_pipeline/` (2-round neighbor-stacked LightGBM, `wildlife_reid_solution.ipynb`), HotSpotter LNBNN (`src/reid/lnbnn.py`), keypoint query graph (`kpgraph.py`), `lnb_img` candidate/SIFT expansion & k-reciprocal re-ranking (`v9`/`v10`, `sub-v05..v11` up to **`0.88073`**); dual-pool `dev_bg_sw2152` + `exp_v25` + `make_team_blend.py` (`sub-v18..v24`, `sub-v29` **`0.88585`**); `Sw2152` centroid prototypes/DBA (`sw_proto`), non-tree Neural Net (`MLPClassifier`), `sw_qq` learned propagation (`sub-v31` Rank 1 **`0.88690`**), Private-LB anti-overfitting verification, and the final report notebook (`Team_NeuerXjensen_Final_Report.ipynb`). |
+| **Jazl Anwar MV** | `jazpeak` | Read and researched animal re-ID papers by **Prof. Saket Anand** and related metric-learning literature, running experiments that guided team feature design; Stage-2 full-frame camera-trap SIFT filtering, gallery hubness (`r_g_diff`), missing-candidate veto fix & learned query-query graph propagation (`lprop`); gallery-only linear metric learning (`PCA(512)-LDA`, `Side-LDA`, and full 2152-dim `Sw` whitening `sw2152`, reaching Rank 1 **`0.88424`** in `sub-v26`); `v27` research-paper experiments (identity prototypes, gallery aggregation, and cross-flank alignment, `sub-v27`); `v28` gallery-to-query competitor features (`G2Q`) and safe `new_individual` gating (`sub-v30` Rank 1 **`0.88605`**, integrated into the final **`0.88690`** blend); blend ablations (`sub-v25`, `sub-v28`, `sub-v30a`), `dev_pipeline` helper modules (`core.py`, `model2.py`, `exp_blend_check.py`), and report documentation. |
+| **Lokesh Akurathi** | `Lokesh-akurathi` | Dual-pipeline `bg_clean` upgrades (`nprobe=64` LNBNN with `lnb_uimg`/`lnb_rimg` background-keypoint masking, Stage-1 corner camera-trap SIFT filter, and `conn_new_scale` isolated-node propagation fix driving `sub-v12..v17` up to **`0.88101`**); standalone Kaggle notebooks (`wildlife_reid_v4` `sub-v20`, `v25_v26_notebook.ipynb`), `v25` HNSW rescue + `v26` dual-model pipeline (`src/reid/dual_model.py`, `scripts/eval_blend.py`, `tests/test_v25_and_dual.py`), and experimental `alt_approach_v4.py` / `wildlife_reid_alt_approach.md`. |

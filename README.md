@@ -31,14 +31,14 @@ Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**. Full report
 ### Individual Contributions (Team NeuerXjensen)
 | Team Member | GitHub Account | Key Contributions |
 |---|---|---|
-| **Sabari Krishna R** | `sabarikrishna2006` | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model Sabari half `v17..v26` of the final blend). |
+| **Sabari Krishna R** | `sabarikrishna2006` | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model `src/reid/` ensemble `v17..v26` in the final blend). |
 | **Devyaansh** | `devyaansh-9` | Independent `dev_pipeline/` (2-round neighbor-stacked LightGBM, `wildlife_reid_solution.ipynb`), HotSpotter LNBNN (`src/reid/lnbnn.py`), keypoint query graph (`kpgraph.py`), `lnb_img` candidate/SIFT expansion & k-reciprocal re-ranking (`v9`/`v10`, `sub-v05..v11` up to **`0.88073`**); dual-pool `dev_bg_sw2152` + `exp_v25` + `make_team_blend.py` (`sub-v18..v24`, `sub-v29` **`0.88585`**); `Sw2152` centroid prototypes/DBA (`sw_proto`), non-tree Neural Net (`MLPClassifier`), `sw_qq` learned propagation (`sub-v31` Rank 1 **`0.88690`**), Private-LB anti-overfitting verification, and the final report notebook (`Team_NeuerXjensen_Final_Report.ipynb`). |
 | **Jazl Anwar MV** | `jazpeak` | Read and researched animal re-ID papers by **Prof. Saket Anand** and related metric-learning literature, running experiments that guided team feature design; Stage-2 full-frame camera-trap SIFT filtering, gallery hubness (`r_g_diff`), missing-candidate veto fix & learned query-query graph propagation (`lprop`); gallery-only linear metric learning (`PCA(512)-LDA`, `Side-LDA`, and full 2152-dim `Sw` whitening `sw2152`, reaching Rank 1 **`0.88424`** in `sub-v26`); `v27` research-paper experiments (identity prototypes, gallery aggregation, and cross-flank alignment, `sub-v27`); `v28` gallery-to-query competitor features (`G2Q`) and safe `new_individual` gating (`sub-v30` Rank 1 **`0.88605`**, integrated into the final **`0.88690`** blend); blend ablations (`sub-v25`, `sub-v28`, `sub-v30a`), `dev_pipeline` helper modules (`core.py`, `model2.py`, `exp_blend_check.py`), and report documentation. |
 | **Lokesh Akurathi** | `Lokesh-akurathi` | Dual-pipeline `bg_clean` upgrades (`nprobe=64` LNBNN with `lnb_uimg`/`lnb_rimg` background-keypoint masking, Stage-1 corner camera-trap SIFT filter, and `conn_new_scale` isolated-node propagation fix driving `sub-v12..v17` up to **`0.88101`**); standalone Kaggle notebooks (`wildlife_reid_v4` `sub-v20`, `v25_v26_notebook.ipynb`), `v25` HNSW rescue + `v26` dual-model pipeline (`src/reid/dual_model.py`, `scripts/eval_blend.py`, `tests/test_v25_and_dual.py`), and experimental `alt_approach_v4.py` / `wildlife_reid_alt_approach.md`. |
 
 Our final solution blends the temperature-calibrated label probability distributions of two independent, strictly zero-leakage pipelines:
-- **Sabari Pipeline (`50%`)**: Equal 5-model monotone LightGBM ensemble of `exp_v17_bgclean_conn`, `exp_v19_bgclean_v2`, `exp_v24_fullbg_sw2152`, `exp_v25_fullbg_sw2152_lda512`, and `exp_v26_fullbg_sw2152_proto` (`src/reid/`).
-- **Dev Pipeline (`50%`)**: Equal 50/50 dual-pool blend of `dev_bg_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`) and `dev_v10_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`) (`dev_pipeline/`).
+- **Pipeline A — Single-Round Monotone Ensemble (`50%`, `src/reid/`)**: Equal 5-model monotone LightGBM ensemble of `exp_v17_bgclean_conn`, `exp_v19_bgclean_v2`, `exp_v24_fullbg_sw2152`, `exp_v25_fullbg_sw2152_lda512`, and `exp_v26_fullbg_sw2152_proto`.
+- **Pipeline B — Two-Round Stacked Dual-Pool Ensemble (`50%`, `dev_pipeline/`)**: Equal 50/50 dual-pool blend of `dev_bg_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`) and `dev_v10_swproto_g2q` (`LGB + MLP`, `sw_qq` `lprop`).
 
 ### Key Zero-Leakage Discoveries
 1. **Two-Stage Camera-Trap SIFT Background Filtering (`bg_clean` & SIFT Killers)**:
@@ -54,10 +54,10 @@ Our final solution blends the temperature-calibrated label probability distribut
 ### Blending & Reproduction
 1. Every transductive run of `03_make_submission.py` writes `submissions/sub_<id>.probs.pkl`:
    `{test_id: {label: probability}}`, the final propagated probabilities (with the tuned new-scale), renormalised.
-2. Dev's pipeline modules in `dev_pipeline/` write the same calibrated probability dictionary format.
+2. The `dev_pipeline/` modules write the same calibrated probability dictionary format.
 3. Blend (validated through the submission script):
 ```
-py scripts/03_make_submission.py --blend submissions/sub_<sabari>.probs.pkl path/to/dev_probs.pkl --w 0.5
+py scripts/03_make_submission.py --blend submissions/sub_<pipeline_a>.probs.pkl path/to/pipeline_b_probs.pkl --w 0.5
 ```
 
 
