@@ -59,7 +59,6 @@ from sklearn.metrics import roc_auc_score
 
 import lightgbm as lgb
 import cv2
-import torch
 import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
@@ -70,7 +69,7 @@ if HAVE_FAISS:
     except Exception:
         pass
 
-SIFT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+SIFT_DEVICE = "cpu"
 
 # ----------------------------------------------------------------------------
 # Auto-detect Kaggle or local dataset paths (supports SIFT as dir OR .npz)
@@ -308,39 +307,41 @@ print(f"Loaded {len(meta)} images | MAP@5 unit test passed | KP_COUNTS med={np.m
 # ============================================================================
 # 2. FAISS ROOTSIFT LNBNN INDEX + UNSUPERVISED KEYPOINT GRAPH (kpgraph)
 # ============================================================================
-def pytorch_topk_search(queries: np.ndarray, gal: np.ndarray, k: int, chunk_size: int = 100000):
-    """High-performance chunked exact KNN search in pure PyTorch (GPU or multi-threaded CPU)."""
-    device = torch.device(SIFT_DEVICE)
+def numpy_topk_search(queries: np.ndarray, gal: np.ndarray, k: int, chunk_size: int = 100000):
+    """Chunked exact KNN search in pure NumPy (zero deep-learning framework dependency)."""
     k = min(k, len(gal))
-    q_t = torch.from_numpy(queries).float().to(device)
+    q_np = queries.astype(np.float32, copy=False)
     best_sims = None
     best_indices = None
 
     for start in range(0, len(gal), chunk_size):
         end = min(len(gal), start + chunk_size)
-        g_chunk = torch.from_numpy(gal[start:end]).float().to(device)
-        sim = q_t @ g_chunk.T
-
-        top_v, top_i = torch.topk(sim, min(k, end - start), dim=1)
-        top_i = top_i + start
+        g_chunk = gal[start:end].astype(np.float32, copy=False)
+        sim = q_np @ g_chunk.T
+        kk = min(k, end - start)
+        idx_part = np.argpartition(-sim, kk - 1, axis=1)[:, :kk]
+        val_part = np.take_along_axis(sim, idx_part, axis=1)
+        ord_p = np.argsort(-val_part, axis=1)
+        top_v = np.take_along_axis(val_part, ord_p, axis=1)
+        top_i = np.take_along_axis(idx_part, ord_p, axis=1) + start
 
         if best_sims is None:
-            best_sims = top_v
-            best_indices = top_i
+            best_sims, best_indices = top_v, top_i
         else:
-            comb_sims = torch.cat([best_sims, top_v], dim=1)
-            comb_indices = torch.cat([best_indices, top_i], dim=1)
-            best_sims, top_pos = torch.topk(comb_sims, k, dim=1)
-            best_indices = torch.gather(comb_indices, 1, top_pos)
+            comb_sims = np.concatenate([best_sims, top_v], axis=1)
+            comb_indices = np.concatenate([best_indices, top_i], axis=1)
+            pos = np.argpartition(-comb_sims, k - 1, axis=1)[:, :k]
+            v_sel = np.take_along_axis(comb_sims, pos, axis=1)
+            i_sel = np.take_along_axis(comb_indices, pos, axis=1)
+            ord_c = np.argsort(-v_sel, axis=1)
+            best_sims = np.take_along_axis(v_sel, ord_c, axis=1)
+            best_indices = np.take_along_axis(i_sel, ord_c, axis=1)
 
-    # Convert cosine similarity to squared L2 distance: D^2 = 2 - 2 * sim
-    sims_np = best_sims.cpu().numpy()
-    indices_np = best_indices.cpu().numpy()
-    d2_np = np.clip(2.0 - 2.0 * sims_np, 0.0, 4.0).astype(np.float32)
-    return d2_np, indices_np
+    d2_np = np.clip(2.0 - 2.0 * best_sims, 0.0, 4.0).astype(np.float32)
+    return d2_np, best_indices.astype(np.int64)
 
 class FastKNN:
-    """Unified KNN wrapper supporting FAISS IndexHNSWFlat and offline PyTorch fallback."""
+    """Unified KNN wrapper supporting FAISS IndexHNSWFlat and pure-NumPy fallback."""
     def __init__(self, d: int = 128, ef_const: int = 64, ef_search: int = 48, use_faiss: bool = HAVE_FAISS):
         self.d = d
         self.use_faiss = use_faiss
@@ -361,7 +362,7 @@ class FastKNN:
         if self.use_faiss:
             return self.index.search(queries.astype(np.float32), k)
         else:
-            return pytorch_topk_search(queries, self.mat, k)
+            return numpy_topk_search(queries, self.mat, k)
 
 def build_or_load_lnbnn_and_kpgraph(sp: str):
     lnb_dir = CACHE_DIR / "lnbnn"
@@ -468,8 +469,6 @@ def build_or_load_lnbnn_and_kpgraph(sp: str):
 
     kp_graph_p.write_bytes(pickle.dumps(kp_edges))
     del idx_all, A_mat, A_owner, vote_scores
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
     gc.collect()
     print(f"[{sp}] Saved unsupervised kpgraph in {time.time() - t1:.1f}s.")
 
@@ -681,33 +680,39 @@ print(f"Prepared {len(ALL_FOLDS)} CV folds (primary + mixed) and {len(TEST_FOLDS
 # ============================================================================
 SIFT_NAMES = ["n_mutual", "inl_aff", "inl_aff_strict", "inl_h", "inl_ratio", "spread_min", "abs_rot", "log_scale"]
 
-@torch.no_grad()
-def _verify_sift_batch_torch_v4(pairs, xy_dict, desc_t_dict, ratio=0.80, thresh=10.0, strict=5.0) -> np.ndarray:
-    """GPU-accelerated RootSIFT mutual Lowe-ratio matching (or multi-threaded CPU) + OpenCV RANSAC."""
-    device = next(iter(desc_t_dict.values())).device if desc_t_dict else torch.device("cpu")
+def _verify_sift_batch_numpy_v4(pairs, xy_dict, desc_dict, ratio=0.80, thresh=10.0, strict=5.0) -> np.ndarray:
+    """Pure-NumPy RootSIFT mutual Lowe-ratio matching + OpenCV RANSAC."""
     res = np.full((len(pairs), len(SIFT_NAMES)), np.nan, dtype=np.float32)
     for i, (a, b) in enumerate(pairs):
-        da, db = desc_t_dict[a], desc_t_dict[b]
+        da, db = desc_dict[a], desc_dict[b]
         na, nb = da.shape[0], db.shape[0]
         if na < 2 or nb < 2:
             continue
         sim = da @ db.T
-        v_ab, i_ab = torch.topk(sim, k=2, dim=1)
-        d1_ab = torch.sqrt(torch.clamp(2.0 - 2.0 * v_ab[:, 0], min=0.0))
-        d2_ab = torch.sqrt(torch.clamp(2.0 - 2.0 * v_ab[:, 1], min=0.0))
+        i_ab = np.argpartition(-sim, 1, axis=1)[:, :2]
+        v_ab = np.take_along_axis(sim, i_ab, axis=1)
+        sw = v_ab[:, 1] > v_ab[:, 0]
+        v1_ab = np.where(sw, v_ab[:, 1], v_ab[:, 0])
+        v2_ab = np.where(sw, v_ab[:, 0], v_ab[:, 1])
+        best_b = np.where(sw, i_ab[:, 1], i_ab[:, 0])
+        d1_ab = np.sqrt(np.clip(2.0 - 2.0 * v1_ab, 0.0, None))
+        d2_ab = np.sqrt(np.clip(2.0 - 2.0 * v2_ab, 0.0, None))
         p_ab = d1_ab < (ratio * d2_ab)
-        best_b = i_ab[:, 0]
 
-        v_ba, i_ba = torch.topk(sim, k=2, dim=0)
-        d1_ba = torch.sqrt(torch.clamp(2.0 - 2.0 * v_ba[0, :], min=0.0))
-        d2_ba = torch.sqrt(torch.clamp(2.0 - 2.0 * v_ba[1, :], min=0.0))
+        i_ba = np.argpartition(-sim, 1, axis=0)[:2, :]
+        v_ba = np.take_along_axis(sim, i_ba, axis=0)
+        swb = v_ba[1, :] > v_ba[0, :]
+        v1_ba = np.where(swb, v_ba[1, :], v_ba[0, :])
+        v2_ba = np.where(swb, v_ba[0, :], v_ba[1, :])
+        best_a = np.where(swb, i_ba[1, :], i_ba[0, :])
+        d1_ba = np.sqrt(np.clip(2.0 - 2.0 * v1_ba, 0.0, None))
+        d2_ba = np.sqrt(np.clip(2.0 - 2.0 * v2_ba, 0.0, None))
         p_ba = d1_ba < (ratio * d2_ba)
-        best_a = i_ba[0, :]
 
-        ia = torch.arange(na, device=device)
+        ia = np.arange(na)
         mut = p_ab & p_ba[best_b] & (best_a[best_b] == ia)
-        ma = ia[mut].cpu().numpy()
-        mb = best_b[mut].cpu().numpy()
+        ma = ia[mut]
+        mb = best_b[mut]
         n_mut = len(ma)
         res[i, 0], res[i, 1], res[i, 2], res[i, 3], res[i, 4] = float(n_mut), 0.0, 0.0, 0.0, 0.0
         if n_mut < 4:
@@ -763,30 +768,27 @@ def ensure_sift_pairs(needed_pairs: set) -> dict:
     t0 = time.time()
     print(f"[sift] Computing {len(missing):,} new SIFT+RANSAC pairs on {SIFT_DEVICE} (cached: {len(pair_dict):,})...")
     needed_rows = sorted({r for p in missing for r in p})
-    device = torch.device(SIFT_DEVICE)
-    xy_d, desc_t_d = {}, {}
+    xy_d, desc_d = {}, {}
     st_tr, st_te = SiftStore(SIFT_TRAIN_PATH), SiftStore(SIFT_TEST_PATH)
     for r_i in needed_rows:
         img_id = meta["id"].iloc[r_i]
         xy, desc = (st_te if meta["is_test"].iloc[r_i] else st_tr).get(img_id)
         xy_d[r_i] = xy
-        desc_t_d[r_i] = torch.from_numpy(to_rootsift_l2(desc)).to(device)
+        desc_d[r_i] = to_rootsift_l2(desc)
     st_tr.close(); st_te.close()
 
     step = CFG.get("sift_save_every", 1500)
     for start in range(0, len(missing), step):
         batch = missing[start:start + step]
-        vals_batch = _verify_sift_batch_torch_v4(
-            batch, xy_d, desc_t_d, CFG["sift_ratio"], CFG["sift_thresh"], CFG["sift_thresh_strict"]
+        vals_batch = _verify_sift_batch_numpy_v4(
+            batch, xy_d, desc_d, CFG["sift_ratio"], CFG["sift_thresh"], CFG["sift_thresh_strict"]
         )
         for p, v in zip(batch, vals_batch):
             pair_dict[p] = v
         _save_sift_cache(cache_p, pair_dict)
         print(f"  [sift] Processed {min(start + step, len(missing)):,}/{len(missing):,} pairs...")
 
-    del xy_d, desc_t_d
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    del xy_d, desc_d
     gc.collect()
     print(f"[sift] Computed & cached {len(missing):,} pairs in {time.time() - t0:.1f}s.")
     return pair_dict
