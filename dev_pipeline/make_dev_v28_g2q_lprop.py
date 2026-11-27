@@ -18,7 +18,7 @@ from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 
 warnings.filterwarnings("ignore")
-ROOT = "/home/jazl-anwar/Desktop/Projects/mlfinalproj/Animal_reid"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = f"{ROOT}/data/reid_student_data_main"
 CACHE = f"{ROOT}/data/cache"
 sys.path.insert(0, f"{ROOT}/src")
@@ -455,13 +455,12 @@ for qid, sp in zip(test.id.values, test.species.values):
 sub_v28 = pd.DataFrame({"id": test.id, "predictions": rows_safe})
 validate(sub_v28, test, train)
 out_repo = f"{ROOT}/submissions/sub_team_blend_lnb38_v28_g2q_safe.csv"
-out_dl   = "/home/jazl-anwar/Downloads/sub_team_blend_lnb38_v28_g2q_safe.csv"
-sub_v28.to_csv(out_repo, index=False); sub_v28.to_csv(out_dl, index=False)
+sub_v28.to_csv(out_repo, index=False)
 
 t1_28 = sub_v28.predictions.str.split().str[0].values
 t1_36 = ref36_df.predictions.str.split().str[0].values
 mh = (test.species == "hyena").values; ml = (test.species == "leopard").values
-log(f"WROTE & VALIDATED {out_dl}")
+log(f"WROTE & VALIDATED {out_repo}")
 log(f"lnb38_v28_g2q_safe vs lnb36 (0.88585) top-1 flips: {(t1_28 != t1_36).sum()} (Known<->Known={n_k2k}, FalseHubKnown->NEW={n_k2new}, NEW->Known=0!) | Rank2<->3 swaps={n_r25}")
 pickle.dump({"tp_v28": tp_v28, "cv_v28": cv_v28, "oof_v28": OOF_LPROP}, open(f"{CACHE}/honest_cv16_v28_results.pkl", "wb"), protocol=4)
 log("Saved honest_cv16_v28_results.pkl — ALL DONE!")

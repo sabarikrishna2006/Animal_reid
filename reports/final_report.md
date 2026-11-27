@@ -129,3 +129,22 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
   labels and external data, not unsupervised use of the given test features.
 - *Biggest remaining error?* Known animals seen in a new encounter (low similarity, no keypoint match) get
   `new_individual` ranked first; with only the provided features there is little evidence left to fix them.
+
+## 8. Selected Three Model Versions & Progression (Evaluation Factor 2b)
+| Model Version | Git Tag & CSV | Honest CV | Public LB | Gain vs. Baseline | Key Architecture |
+|---|---|---:|---:|---:|---|
+| **Version 1 (Baseline)** | `sub-v02` (`sub_baseline_rawcos.csv`) | `0.8486` (CV v1) | `0.76983` | baseline | Raw L2 MiewID cosine + fixed novelty threshold |
+| **Version 2 (Intermediate)** | `sub-v11` (`sub_team_blend_lnb7.csv`) | `0.8764` (shared) | `0.88073` | **`+0.11090`** | Dual-pipeline 50/50 blend + `lnb_img` LNBNN candidate expansion + guided RANSAC SIFT + k-reciprocal + Zhou prop |
+| **Version 3 (Best Final)** | `sub-v31` (`sub_team_blend_lnb39_swproto_g2q_mlp.csv`) | **`0.88780`** (8-split shared) / **`0.93385`** (5-split Sabari) | **`0.88690`** | **`+0.11707`** | + 2-Stage Camera-Trap SIFT Killers + Gallery-only `Sw2152` & Centroid Prototypes/DBA (`sw_proto`) + R1/R2 `G2Q` + non-tree Neural Net `MLPClassifier(128, 64)` + `sw_qq` learned `lprop` (`AUC 0.98265`) + Sabari `v26` |
+
+## 9. Limitations & Capabilities of the Best Model (Evaluation Factor 2c)
+- **Capabilities:** Near-human accuracy on same-flank multi-shot individuals (`0.93+` MAP@5 on 6+ photo IDs), robust camera-trap background rejection (zeroes static foliage/timestamp false SIFT matches), well-calibrated open-set novelty detection (`Top-1 ECE = 0.0493`, `Brier = 0.0811`, `mean P(new) = 0.3254`), and `99.57–100%` top-1 stability under blend perturbations.
+- **Limitations:** Asymmetric opposite-flank queries (left query vs. right-only gallery) remain the hardest failure mode (`MAP 0.275` leopard / `0.488` hyena) because coat spots differ across flanks and raw images/timestamps/GPS are unavailable; 1-photo gallery individuals (`0.396` leopard / `0.552` hyena) and ~`3.5%` candidate-recall misses represent the physical information ceiling of MiewID + SIFT alone.
+
+## 10. Individual Contributions (Team BLACKbox — Evaluation Factor 2d & Rule 3)
+| Team Member | GitHub Account | Commits | Major Contributions |
+|---|---|---:|---|
+| **Sabari Krishna R** | `sabarikrishna2006` | 3+ | Core `src/reid/` framework, compliance/leakage unit tests, encounter-disjoint CV v1, initial Gate-1..Gate-5 pipeline (`sub-v01..v04`, `0.76983 -> 0.84116`). |
+| **Devyaansh** | `devyaansh-9` | 10+ | Independent `dev_pipeline/`, 2-round stacked LightGBM, `nprobe=64` LNBNN background masking, Stage-1/2 camera-trap SIFT killers, `r_g_diff` hubness, Full 2152-d `Sw` whitening + `sw_proto` (Centroid Prototypes/DBA), non-tree Neural Net `MLPClassifier`, `sw_qq` learned `lprop`, final Rank 1 **`0.88690`** blend (`sub-v05..v11`, `sub-v18..v24`, `sub-v29`, `sub-v31`). |
+| **Jazl Anwar MV** | `jazpeak` | 8+ | `v27` 5-paper Honest CV study, `v28` Transductive `G2Q` Reciprocal Competitor Z-Score/Share + Novelty-Safe Competitor-Conflict Gating (`sub-v25..v28`, `sub-v30` **`0.88605`**), repo helper modules & report maintenance. |
+| **Lokesh Akurathi** | `Lokesh` | 5+ | Standalone Kaggle notebooks (`wildlife_reid_v4`, `kaggle_v25_v26_standalone.ipynb`), `nprobe=64` LNBNN & `conn_new_scale` isolated-node fixes, `v25` HNSW rescue + `v26` dual-model pipeline & `eval_blend.py` (`sub-v12..v17`, `sub-v20`). |
