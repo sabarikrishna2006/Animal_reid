@@ -1,4 +1,4 @@
-# Kaggle Submissions Log (Team BLACKbox)
+# Kaggle Submissions Log (Team NeuerXjensen)
 
 Every official Kaggle submission is tagged in Git with a unique version ID and submission date.
 

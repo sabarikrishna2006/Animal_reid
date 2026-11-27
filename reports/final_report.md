@@ -1,4 +1,4 @@
-# Wildlife Re-Identification (Problem 3): report notes, team BLACKbox
+# Wildlife Re-Identification (Problem 3): report notes, team NeuerXjensen
 
 Final submission: **`sub_team_blend_lnb39_swproto_g2q_mlp.csv`** (`sub-v31-2026-11-27-blend-lnb39`), public LB **`0.88690`** (Rank 1).
 Second selected submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`**.
@@ -141,7 +141,7 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 - **Capabilities:** Near-human accuracy on same-flank multi-shot individuals (`0.93+` MAP@5 on 6+ photo IDs), robust camera-trap background rejection (zeroes static foliage/timestamp false SIFT matches), well-calibrated open-set novelty detection (`Top-1 ECE = 0.0493`, `Brier = 0.0811`, `mean P(new) = 0.3254`), and `99.57–100%` top-1 stability under blend perturbations.
 - **Limitations:** Asymmetric opposite-flank queries (left query vs. right-only gallery) remain the hardest failure mode (`MAP 0.275` leopard / `0.488` hyena) because coat spots differ across flanks and raw images/timestamps/GPS are unavailable; 1-photo gallery individuals (`0.396` leopard / `0.552` hyena) and ~`3.5%` candidate-recall misses represent the physical information ceiling of MiewID + SIFT alone.
 
-## 10. Individual Contributions (Team BLACKbox — Evaluation Factor 2d & Rule 3)
+## 10. Individual Contributions (Team NeuerXjensen — Evaluation Factor 2d & Rule 3)
 | Team Member | GitHub Account | Commits | Major Contributions |
 |---|---|---:|---|
 | **Sabari Krishna R** | `sabarikrishna2006` | 3+ | Core `src/reid/` framework, compliance/leakage unit tests, encounter-disjoint CV v1, initial Gate-1..Gate-5 pipeline (`sub-v01..v04`, `0.76983 -> 0.84116`). |
