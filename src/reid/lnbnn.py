@@ -136,23 +136,93 @@ class Scorer:
             np.maximum.at(out_rimg, self.lab, img_r)
         return out_rimg
 
+    def scores_all(self, qid, gmask, ratio=0.85):
+        """Single-pass computation of (k10, img, k3, uimg, rimg, img_sc) for a query."""
+        i = self.qpos[qid]; a, b = self.qoff[i], self.qoff[i + 1]
+        n_id, n_gal = len(self.names), len(self.gal)
+        out_k10 = np.zeros(n_id, np.float32)
+        out_img = np.zeros(n_id, np.float32)
+        out_k3 = np.zeros(n_id, np.float32)
+        out_uimg = np.zeros(n_id, np.float32)
+        out_rimg = np.zeros(n_id, np.float32)
+        img_sc = np.zeros(n_gal, np.float32)
+        img_u = np.zeros(n_gal, np.float32)
+        if b == a:
+            return out_k10, out_img, out_k3, out_uimg, out_rimg, img_sc, img_u
+        nb = np.asarray(self.NB[a:b]); d = np.asarray(self.DI[a:b], np.float32)
+        ok = (nb >= 0) & gmask[np.maximum(nb, 0)]
+        if qid in self.gpos:
+            ok &= nb != self.gpos[qid]
+        rank = np.cumsum(ok, 1)
+        rows_all = np.arange(len(d))
+        lab_mat = self.lab[np.maximum(nb, 0)]
+
+        # 1. Standard K=10 identity LNBNN + image-level K=10 LNBNN
+        has_bg10 = rank[:, -1] >= K + 1
+        bg10 = np.where(has_bg10, d[rows_all, np.argmax(rank >= K + 1, 1)], d.max(1))
+        r10, c10 = np.nonzero(ok & (rank <= K))
+        if len(r10):
+            l10 = lab_mat[r10, c10]
+            _, f_id = np.unique(r10.astype(np.int64) * n_id + l10, return_index=True)
+            np.add.at(out_k10, l10[f_id], np.maximum(bg10[r10[f_id]] - d[r10[f_id], c10[f_id]], 0.0))
+            g10 = nb[r10, c10]
+            _, f_g = np.unique(r10.astype(np.int64) * n_gal + g10, return_index=True)
+            np.add.at(img_sc, g10[f_g], np.maximum(bg10[r10[f_g]] - d[r10[f_g], c10[f_g]], 0.0))
+            np.maximum.at(out_img, self.lab, img_sc)
+
+        # 2. Strict K=3 identity LNBNN
+        has_bg3 = rank[:, -1] >= 4
+        bg3 = np.where(has_bg3, d[rows_all, np.argmax(rank >= 4, 1)], d.max(1))
+        r3, c3 = np.nonzero(ok & (rank <= 3))
+        if len(r3):
+            l3 = lab_mat[r3, c3]
+            _, f3 = np.unique(r3.astype(np.int64) * n_id + l3, return_index=True)
+            np.add.at(out_k3, l3[f3], np.maximum(bg3[r3[f3]] - d[r3[f3], c3[f3]], 0.0))
+
+        # 3. Background-suppressed image-level LNBNN (uimg) and cross-ID ratio LNBNN (rimg)
+        has1 = rank[:, -1] >= 1
+        c1 = np.argmax(ok, 1)
+        g1 = nb[rows_all, c1]
+        id1 = np.where(has1, self.lab[np.maximum(g1, 0)], -1)
+        ok_diff = ok & (lab_mat != id1[:, None])
+        has2 = ok_diff.any(1)
+        d2 = np.where(has2, d[rows_all, np.argmax(ok_diff, 1)], d.max(1))
+        ok_same = ok & (lab_mat == id1[:, None]) & (d < d2[:, None])
+        rs, cs = np.nonzero(ok_same)
+        if len(rs):
+            gs = nb[rs, cs]
+            _, fg = np.unique(rs.astype(np.int64) * n_gal + gs, return_index=True)
+            rs1, cs1, gs1 = rs[fg], cs[fg], gs[fg]
+            vm = np.maximum(d2[rs1] - d[rs1, cs1], 0.0)
+            np.add.at(img_u, gs1, vm)
+            np.maximum.at(out_uimg, self.lab, img_u)
+            if has2.any():
+                vr = np.where(has2[rs1] & (d[rs1, cs1] < ratio * d2[rs1]), vm, 0.0)
+                img_r = np.zeros(n_gal, np.float32)
+                np.add.at(img_r, gs1, vr)
+                np.maximum.at(out_rimg, self.lab, img_r)
+        return out_k10, out_img, out_k3, out_uimg, out_rimg, img_sc, img_u
+
 
 def scorer(ctx, sp):
-    if sp not in _CACHE:
-        from .io import P
-        d = Path(ctx.cfg["paths"].get("lnbnn", "data/cache/lnbnn"))
-        d = d if d.is_absolute() else P(ctx.cfg, "cache").parent.parent / d
+    from .io import P
+    d = Path(ctx.cfg["paths"].get("lnbnn", "data/cache/lnbnn"))
+    d = d if d.is_absolute() else P(ctx.cfg, "cache").parent.parent / d
+    key = (str(d), sp)
+    if key not in _CACHE:
         tr = ctx.data.train
-        _CACHE[sp] = Scorer(d, sp, tr.id.values, tr.identity.values)
-    return _CACHE[sp]
+        _CACHE[key] = Scorer(d, sp, tr.id.values, tr.identity.values)
+    return _CACHE[key]
 
 
 _FOLD_CACHE = {}
+_FOLD_UIMG_CACHE = {}
 
 
-def fold_img_scores(fold, ctx, cand_ids):
-    """Cached per-fold (Lim [nq x nid], ImgMat [nq x ngal_fold]) for lnb_img candidate expansion & SIFT selection."""
-    key = (fold.species, len(fold.query_rows), len(fold.gallery_rows),
+def fold_all_scores(fold, ctx, cand_ids):
+    """Single-pass cached per-fold LNBNN matrices: (L, Lim, Lk3, Lu, Lr, ImgMat)."""
+    lnb_dir = ctx.cfg["paths"].get("lnbnn", "data/cache/lnbnn")
+    key = (lnb_dir, fold.species, len(fold.query_rows), len(fold.gallery_rows),
            int(fold.query_rows[0]), int(fold.gallery_rows[0]))
     if key in _FOLD_CACHE:
         return _FOLD_CACHE[key]
@@ -161,19 +231,37 @@ def fold_img_scores(fold, ctx, cand_ids):
     gmask = np.isin(S.gal, gids)
     col_idx = np.searchsorted(S.names, cand_ids)
     g_col = np.array([S.gpos[g] for g in gids], dtype=np.int32)
-    res = [S.scores_img_k3(q, gmask, want_img_sc=True) for q in fold.query_ids]
-    Lim = np.stack([x[0] for x in res])[:, col_idx]
-    ImgMat = np.stack([x[2][g_col] for x in res])
-    _FOLD_CACHE[key] = (Lim, ImgMat)
+    res = [S.scores_all(q, gmask) for q in fold.query_ids]
+    L = np.stack([x[0] for x in res])[:, col_idx]
+    Lim = np.stack([x[1] for x in res])[:, col_idx]
+    Lk3 = np.stack([x[2] for x in res])[:, col_idx]
+    Lu = np.stack([x[3] for x in res])[:, col_idx]
+    Lr = np.stack([x[4] for x in res])[:, col_idx]
+    ImgMat = np.stack([x[5][g_col] for x in res])
+    UimgMat = np.stack([x[6][g_col] for x in res])
+    _FOLD_CACHE[key] = (L, Lim, Lk3, Lu, Lr, ImgMat)
+    _FOLD_UIMG_CACHE[key] = UimgMat
+    return _FOLD_CACHE[key]
+
+
+def fold_uimg_scores(fold, ctx, cand_ids):
+    """Cached per-fold (Lu, Lim, ImgMat, UimgMat) using single-pass LNBNN cache."""
+    _, Lim, _, Lu, _, ImgMat = fold_all_scores(fold, ctx, cand_ids)
+    lnb_dir = ctx.cfg["paths"].get("lnbnn", "data/cache/lnbnn")
+    key = (lnb_dir, fold.species, len(fold.query_rows), len(fold.gallery_rows),
+           int(fold.query_rows[0]), int(fold.gallery_rows[0]))
+    return Lu, Lim, ImgMat, _FOLD_UIMG_CACHE[key]
+
+
+def fold_img_scores(fold, ctx, cand_ids):
+    """Cached per-fold (Lim [nq x nid], ImgMat [nq x ngal_fold]) for lnb_img candidate expansion & SIFT selection."""
+    _, Lim, _, _, _, ImgMat = fold_all_scores(fold, ctx, cand_ids)
     return Lim, ImgMat
 
 
 def add_features(df, fold, ctx, cand_ids):
     """Adds per-(query, candidate) LNBNN features and q_ query-level ones. cand_ids: identity names of df.cand index."""
-    S = scorer(ctx, fold.species)
-    gids = ctx.data.meta.id.values[fold.gallery_rows]
-    gmask = np.isin(S.gal, gids)
-    L = np.stack([S.scores(q, gmask) for q in fold.query_ids])[:, np.searchsorted(S.names, cand_ids)]
+    L, Lim, Lk3, Lu, _, _ = fold_all_scores(fold, ctx, cand_ids)
     mx = L.max(1); second = -np.sort(-L, 1)[:, 1] if L.shape[1] > 1 else mx
     rk = np.argsort(np.argsort(-L, 1), 1)
     qi, c = df.qi.values, df.cand.values
@@ -182,10 +270,6 @@ def add_features(df, fold, ctx, cand_ids):
     df["lnb_log"] = np.log1p(v)
     df["q_lnb_max"] = mx[qi]; df["q_lnb_gap"] = (mx - second)[qi]; df["q_lnb_log_max"] = np.log1p(mx)[qi]
     if ctx.cfg["retrieval"].get("lnbnn_img", False):
-        col_idx = np.searchsorted(S.names, cand_ids)
-        res = [S.scores_img_k3(q, gmask) for q in fold.query_ids]
-        Lim = np.stack([x[0] for x in res])[:, col_idx]
-        Lk3 = np.stack([x[1] for x in res])[:, col_idx]
         mx_i = Lim.max(1); sec_i = -np.sort(-Lim, 1)[:, 1] if Lim.shape[1] > 1 else mx_i
         rk_i = np.argsort(np.argsort(-Lim, 1), 1)
         vi = Lim[qi, c]
@@ -201,8 +285,6 @@ def add_features(df, fold, ctx, cand_ids):
         df["lnb_k3_rel"] = np.where(mx_k[qi] > 0, vk / np.maximum(mx_k[qi], 1e-9), 0.0)
         df["q_lnb_k3_max"] = mx_k[qi]; df["q_lnb_k3_gap"] = (mx_k - sec_k)[qi]
     if ctx.cfg["retrieval"].get("bg_clean", False):
-        col_idx = np.searchsorted(S.names, cand_ids)
-        Lu = np.stack([S.scores_uimg(q, gmask) for q in fold.query_ids])[:, col_idx]
         mx_u = Lu.max(1); sec_u = -np.sort(-Lu, 1)[:, 1] if Lu.shape[1] > 1 else mx_u
         rk_u = np.argsort(np.argsort(-Lu, 1), 1)
         vu = Lu[qi, c]

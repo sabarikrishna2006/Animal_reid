@@ -1,9 +1,11 @@
 """Builds the LNBNN neighbour lists used by configs with retrieval.lnbnn = true (HotSpotter-style one-vs-many keypoint
 matching). For every train and test image, each RootSIFT descriptor gets its 50 nearest training descriptors of the same
-species (faiss-cpu IVF index). Output: data/cache/lnbnn/{species}_nb.npy, _d.npy, _meta.json (~1.3 GB, ~8 min).
-Same format as Dev's notebook, so either side's cache can be copied over.
-Usage: py scripts/04_build_lnbnn.py      (after 00_audit.py)"""
-import json, sys, time
+species (faiss-cpu). Default builds fast HNSW index (99.1% top-10 recall) into data/cache/lnbnn_hnsw or --out.
+Usage:
+  py scripts/04_build_lnbnn.py --out data/cache/lnbnn_hnsw --mode hnsw
+  py scripts/04_build_lnbnn.py --out data/cache/lnbnn --mode ivf --nprobe 64
+"""
+import argparse, json, os, sys, time
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -15,8 +17,16 @@ KNN = 50
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--mode", choices=("hnsw", "ivf"), default="hnsw")
+    ap.add_argument("--nprobe", type=int, default=64)
+    ap.add_argument("--ef-search", type=int, default=64)
+    a = ap.parse_args()
+    faiss.omp_set_num_threads(min(20, os.cpu_count() or 8))
     cfg = load_config(); data = load_data(cfg); S = Sift(cfg)
-    out = Path(cfg["paths"].get("lnbnn", "data/cache/lnbnn")); out = out if out.is_absolute() else ROOT / out
+    default_dir = "data/cache/lnbnn_hnsw" if a.mode == "hnsw" else cfg["paths"].get("lnbnn", "data/cache/lnbnn")
+    out = Path(a.out or default_dir); out = out if out.is_absolute() else ROOT / out
     out.mkdir(parents=True, exist_ok=True)
     row = dict(zip(data.meta.id, data.meta.row))
 
@@ -31,9 +41,16 @@ def main():
         X = [rs(g) for g in gids]
         owner = np.repeat(np.arange(len(gids)), [len(x) for x in X]).astype(np.int32)
         X = np.concatenate(X)
-        index = faiss.IndexIVFFlat(faiss.IndexFlatL2(128), 128, 2048 if sp == "hyena" else 4096)
-        index.train(X[np.random.RandomState(0).choice(len(X), min(len(X), 300000), replace=False)])
-        index.add(X); index.nprobe = 12
+        if a.mode == "hnsw":
+            index = faiss.IndexHNSWFlat(128, 32)
+            index.hnsw.efConstruction = 64
+            index.add(X)
+            index.hnsw.efSearch = a.ef_search
+        else:
+            index = faiss.IndexIVFFlat(faiss.IndexFlatL2(128), 128, 2048 if sp == "hyena" else 4096)
+            index.train(X[np.random.RandomState(0).choice(len(X), min(len(X), 300000), replace=False)])
+            index.add(X); index.nprobe = a.nprobe
+        print(f"{sp}: index ({a.mode}) built in {time.time() - t0:.0f}s", flush=True)
         qlen = [len(S[row[q]][1]) for q in qids]; qoff = np.r_[0, np.cumsum(qlen)]
         NB = np.lib.format.open_memmap(out / f"{sp}_nb.npy", "w+", np.int32, (int(qoff[-1]), KNN))
         DI = np.lib.format.open_memmap(out / f"{sp}_d.npy", "w+", np.float16, (int(qoff[-1]), KNN))

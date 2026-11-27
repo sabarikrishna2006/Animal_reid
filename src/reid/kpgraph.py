@@ -18,16 +18,22 @@ def _rootsift(ctx, row):
     return np.sqrt(d / np.maximum(d.sum(1, keepdims=True), 1e-7))
 
 
-def query_graph(fold, ctx, m=5, nprobe=8):
+def query_graph(fold, ctx, m=5, nprobe=8, use_hnsw=False):
     """Returns (score dict {(i, j): s}, top dict {i: [j1..jm]}) over fold-local query indices."""
     rows = fold.query_rows
     X = [_rootsift(ctx, r) for r in rows]
     lens = np.array([len(x) for x in X]); owner = np.repeat(np.arange(len(rows)), lens).astype(np.int32)
     X = np.concatenate(X).astype(np.float32)
-    nlist = int(min(1024, max(64, len(X) // 1000)))
-    index = faiss.IndexIVFFlat(faiss.IndexFlatL2(128), 128, nlist)
-    index.train(X[np.random.RandomState(0).choice(len(X), min(len(X), 100000), replace=False)])
-    index.add(X); index.nprobe = nprobe
+    if use_hnsw:
+        index = faiss.IndexHNSWFlat(128, 32)
+        index.hnsw.efConstruction = 64
+        index.hnsw.efSearch = max(64, int(nprobe))
+        index.add(X)
+    else:
+        nlist = int(min(1024, max(64, len(X) // 1000)))
+        index = faiss.IndexIVFFlat(faiss.IndexFlatL2(128), 128, nlist)
+        index.train(X[np.random.RandomState(0).choice(len(X), min(len(X), 100000), replace=False)])
+        index.add(X); index.nprobe = nprobe
     d, nb = index.search(X, KNN)
     nb = np.where(nb >= 0, owner[np.maximum(nb, 0)], -1)
     d = np.sqrt(np.maximum(d, 0))

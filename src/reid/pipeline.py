@@ -1,4 +1,5 @@
 """End-to-end pipeline shared by scripts/02_run_cv.py and scripts/03_make_submission.py."""
+import gc
 import hashlib
 import json
 import pickle
@@ -26,7 +27,17 @@ def _hash(d):
     return hashlib.md5(json.dumps(d, sort_keys=True).encode()).hexdigest()[:10]
 
 
-def prepare(cfg, log=print):
+def _shrink_df(df):
+    if df is None:
+        return None
+    f64 = df.select_dtypes(include=["float64"]).columns
+    if len(f64):
+        for c in f64:
+            df[c] = df[c].astype(np.float32)
+    return df
+
+
+def prepare(cfg, log=print, load_sift=True):
     t0 = time.time()
     data = load_data(cfg)
     r = cfg["retrieval"]
@@ -34,7 +45,7 @@ def prepare(cfg, log=print):
            "pcaw": embed_unsupervised(data.X, data.meta, "pcaw", d=r.get("pcaw_d", 512), eps=r.get("pcaw_eps", 1.0))}
     kp = Sift(cfg).n_kp().astype(float)
     splits = build_splits(data, cfg, emb["l2"])
-    use_sift = cfg["sift"].get("enabled", True)
+    use_sift = load_sift and cfg["sift"].get("enabled", True)
     pc = PairCache(cfg) if use_sift else None
     ctx = Context(data, emb, kp, cfg, pc)
     log(f"[prepare] data+embeddings+splits in {time.time() - t0:.0f}s")
@@ -42,14 +53,21 @@ def prepare(cfg, log=print):
 
 
 def build_tables(cfg, data, ctx, splits, log=print):
+    vtag = 4 if cfg["retrieval"].get("v25_stage1", False) else 3
     tkey = {"enabled": False} if not cfg["transductive"].get("features") else {"enabled": False, "features": True}
     skey = {k: v for k, v in cfg["sift"].items() if k != "workers"}
     skey["workers"] = 10
-    key = _hash({"cv": cfg["cv"], "retrieval": cfg["retrieval"], "sift": skey, "transductive": tkey} | {"v": 3})
+    hdict = {"cv": cfg["cv"], "retrieval": cfg["retrieval"], "sift": skey, "transductive": tkey, "v": vtag}
+    lnb_path = cfg["paths"].get("lnbnn", "data/cache/lnbnn")
+    if lnb_path != "data/cache/lnbnn":
+        hdict["lnbnn_path"] = lnb_path
+    key = _hash(hdict)
     path = P(cfg, "cache") / "tables" / f"tables_{key}.pkl"
     if path.exists():
         log(f"[tables] cached {path.name}")
-        return pickle.loads(path.read_bytes())
+        out = pickle.loads(path.read_bytes())
+        _shrink_df(out["cv"]); _shrink_df(out["test"])
+        return out
     folds = [(r, sp, fold, truth) for r, e in enumerate(splits) for sp, (fold, truth) in e.items()]
     tfolds = [(sp, test_fold(data, sp)) for sp in SPECIES]
     trans = cfg["transductive"].get("features", False)
@@ -81,7 +99,7 @@ def build_tables(cfg, data, ctx, splits, log=print):
         df = build_table(fold, ctx, n_cand, transductive=trans, lda_cfg=lda_cfg)
         df["split"] = -1; df["species"] = sp
         test.append(df)
-    out = {"cv": pd.concat(cv, ignore_index=True), "test": pd.concat(test, ignore_index=True)}
+    out = {"cv": _shrink_df(pd.concat(cv, ignore_index=True)), "test": _shrink_df(pd.concat(test, ignore_index=True))}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pickle.dumps(out))
     log(f"[tables] built in {time.time() - t0:.0f}s -> {path.name}")
@@ -113,7 +131,12 @@ def query_table(df, pcol="p", rich_q=False):
                 "lnb_uimg", "lnb_uimg_rel", "sift_inl_clean", "sift_best_is_bg",
                 "lnb_uimg_share", "sift_inl_clean2", "sift_is_bg2",
                 "hub_l2", "hub_lda", "best_g_hub_l2", "best_g_hub_lda",
-                "lnb_rimg", "lnb_rimg_rel", "max_lda512", "max_slda512")
+                "lnb_rimg", "lnb_rimg_rel", "max_lda512", "max_slda512",
+                "max_sw2152", "z_sw2152", "max_sw_raw", "z_sw_raw", "max_ssw2152",
+                "max_fl512", "z_fl512", "max_fl512_raw", "max_cl2",
+                "max_krec_sw10", "z_krec_sw10", "max_diff_sw", "z_diff_sw",
+                "max_same_side_sw", "z_compat_l2", "z_compat_sw",
+                "sift_n_vps_hi", "sift_opp_side_inl", "sift_best_ushare")
     if rich_q:
         top_cols = top_cols + ("sift_rot_best", "sift_spread_best", "sift_n6_clean")
     for c in top_cols:
@@ -233,8 +256,10 @@ def load_extra_cv(cfg, log=print):
     from .io import load_config, ROOT
     c2 = load_config(ROOT / path)
     d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
-    ex = build_tables(c2, d2, ctx2, s2, log=lambda *x: None)["cv"].copy()
+    ex = _shrink_df(build_tables(c2, d2, ctx2, s2, log=lambda *x: None)["cv"])
     ex["split"] = ex["split"] + 10
+    del d2, ctx2, s2
+    gc.collect()
     log(f"[extra_cv] {path}: {len(ex)} extra training rows")
     return ex
 
@@ -296,10 +321,12 @@ def attach_hubness(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     if extra is not None and cfg["model"].get("extra_cv"):
         from .io import load_config, ROOT
         c2 = load_config(ROOT / cfg["model"]["extra_cv"])
-        d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
+        d2, ctx2, s2 = prepare(c2, log=lambda *x: None, load_sift=False)
         for r, e in enumerate(s2):
             for sp in SPECIES:
                 q_info.update(_fold_hubness(e[sp][0], ctx2, r + 10))
+        del d2, ctx2, s2
+        gc.collect()
 
     cols = ["hub_l2", "hub_lda", "hub_l2_gap", "hub_lda_gap", "best_g_hub_l2", "best_g_hub_lda",
             "q_hub_l2_max", "q_hub_l2_gap", "q_hub_lda_max", "q_hub_lda_gap"]
@@ -325,22 +352,34 @@ def attach_hubness(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     return cv, test, extra
 
 
+def attach_optional_features(cfg, data, ctx, splits, cv, test=None, extra=None, log=print):
+    """Attach optional model-flagged features (hubness, lnb_rimg, lda512, sw2152) consistently across CV & submission."""
+    m = cfg["model"]
+    if m.get("hubness", False):
+        cv, test, extra = attach_hubness(cfg, data, ctx, splits, cv, test, extra, log=log)
+    if m.get("lnb_rimg", False):
+        cv, test, extra = attach_rimg(cfg, data, ctx, splits, cv, test, extra, log=log)
+    if m.get("lda512", False):
+        cv, test, extra = attach_lda512(cfg, data, ctx, splits, cv, test, extra, log=log)
+    if m.get("sw2152", False):
+        cv, test, extra = attach_sw2152(cfg, data, ctx, splits, cv, test, extra, log=log)
+    return cv, test, extra
+
+
 def attach_rimg(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     """Attach strict cross-identity Lowe ratio LNBNN (lnb_rimg) features strictly masked to each fold's gallery."""
-    from .lnbnn import scorer
+    from .lnbnn import fold_all_scores
     t0 = time.time()
-    sc_map = {sp: scorer(ctx, sp) for sp in SPECIES}
     q_info = {}
 
     def _run_fold(fold, split_id):
-        S = sc_map[fold.species]
-        gids = data.meta.id.values[fold.gallery_rows]
-        gmask = np.isin(S.gal, gids)
-        for qid in fold.query_ids:
-            v = S.scores_rimg(qid, gmask)
+        cand_ids = np.unique(fold.gallery_labels)
+        _, _, _, _, Lr, _ = fold_all_scores(fold, ctx, cand_ids)
+        for i, qid in enumerate(fold.query_ids):
+            v = Lr[i]
             o = np.argsort(-v)
             m1 = float(v[o[0]]); m2 = float(v[o[1]]) if len(v) > 1 else 0.0
-            q_info[(split_id, qid)] = (S.names, v, m1, m1 - m2)
+            q_info[(split_id, qid)] = (cand_ids, v, m1, m1 - m2)
 
     for r, e in enumerate(splits):
         for sp in SPECIES:
@@ -351,10 +390,12 @@ def attach_rimg(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     if extra is not None and cfg["model"].get("extra_cv"):
         from .io import load_config, ROOT
         c2 = load_config(ROOT / cfg["model"]["extra_cv"])
-        d2, _, s2 = prepare(c2, log=lambda *x: None)
+        d2, _, s2 = prepare(c2, log=lambda *x: None, load_sift=False)
         for r, e in enumerate(s2):
             for sp in SPECIES:
                 _run_fold(e[sp][0], r + 10)
+        del d2, s2
+        gc.collect()
 
     cols = ["lnb_rimg", "lnb_rimg_rel", "q_lnb_rimg_max", "q_lnb_rimg_gap"]
 
@@ -433,10 +474,12 @@ def attach_lda512(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     if extra is not None and cfg["model"].get("extra_cv"):
         from .io import load_config, ROOT
         c2 = load_config(ROOT / cfg["model"]["extra_cv"])
-        d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
+        d2, ctx2, s2 = prepare(c2, log=lambda *x: None, load_sift=False)
         for r, e in enumerate(s2):
             for sp in SPECIES:
                 q_info.update(_fold_lda512(e[sp][0], ctx2, r + 10))
+        del d2, ctx2, s2
+        gc.collect()
 
     cols = ["max_lda512", "max_slda512", "gap_lda512", "gap_slda512",
             "q_lda512_max", "q_lda512_gap", "q_slda512_max", "q_slda512_gap"]
@@ -527,10 +570,12 @@ def attach_sw2152(cfg, data, ctx, splits, cv, test, extra=None, log=print):
     if extra is not None and cfg["model"].get("extra_cv"):
         from .io import load_config, ROOT
         c2 = load_config(ROOT / cfg["model"]["extra_cv"])
-        d2, ctx2, s2 = prepare(c2, log=lambda *x: None)
+        d2, ctx2, s2 = prepare(c2, log=lambda *x: None, load_sift=False)
         for r, e in enumerate(s2):
             for sp in SPECIES:
                 q_info.update(_fold_sw2152(e[sp][0], ctx2, r + 10))
+        del d2, ctx2, s2
+        gc.collect()
 
     cols = ["max_sw2152", "max_ssw2152", "gap_sw2152", "gap_ssw2152",
             "q_sw2152_max", "q_sw2152_gap", "q_ssw2152_max", "q_ssw2152_gap"]
@@ -641,6 +686,8 @@ def _add_bg_clean_v2(df):
     u_share = df["lnb_uimg"].values / np.maximum(df["lnb_img"].values, 1e-6)
     df["lnb_uimg_share"] = u_share.astype(np.float32)
     df["q_lnb_uimg_share"] = (df["q_lnb_uimg_max"].values / np.maximum(df["q_lnb_img_max"].values, 1e-6)).astype(np.float32)
+    if "sift_inl_clean2" in df.columns:
+        return df
     full_bg = (df["sift_rot_best"].values < 0.50) & (u_share < 0.35) & (df["sift_inl_max"].values >= 6)
     is_bg2 = (df["sift_best_is_bg"].values > 0.5) | full_bg
     df["sift_is_bg2"] = is_bg2.astype(np.float32)
@@ -659,15 +706,20 @@ def run_second_level(cv, cfg, log=print, test=None, extra=None):
     if extra is not None:
         common = [c for c in cv.columns if c in extra.columns]
         cv = pd.concat([cv[common], extra[common]], ignore_index=True)
+        del extra
+        gc.collect()
+    else:
+        cv = cv.copy()
+    _shrink_df(cv)
     if mcfg.get("bg_clean_v2", False):
         cv = _add_bg_clean_v2(cv)
         if test is not None:
-            test = _add_bg_clean_v2(test)
+            test = _shrink_df(_add_bg_clean_v2(test))
     drop = tuple(mcfg.get("drop_features", []))
     feats = feature_cols(cv, drop)
     groups = cv.group.values
     t0 = time.time()
-    cv = cv.copy()
+    gc.collect()
     kinds = mcfg.get("rerankers", [mcfg.get("reranker", "lgb")])
     bag_seeds = mcfg.get("bag_seeds", None)
     bag_test = bool(mcfg.get("bag_test", False))
@@ -686,8 +738,12 @@ def run_second_level(cv, cfg, log=print, test=None, extra=None):
     qdf = query_table(cv, rich_q=rich_q)
     qfeats = feature_cols(qdf)
     qgroups = qdf.group.values
-    pnew_mods = None
-    if bag_test:
+    pnew_mods = None; pnew_sp_mods = None
+    if mcfg.get("pnew_per_species", False):
+        from .dual_model import _oof_pnew_per_species, _predict_pnew_per_species
+        qdf["pnew"], pnew_sp_mods = _oof_pnew_per_species(qdf, qfeats, seeds=tuple(bag_seeds) if bag_seeds else (2026, 2027))
+        iters = ["per_sp"]
+    elif bag_test:
         qdf["pnew"], iters, pnew_mods = oof_predict(qdf, qfeats, "is_new", qgroups, kind=mcfg.get("pnew_model", "lgb"),
                                                     return_models=True, seeds=bag_seeds)
     else:
@@ -721,7 +777,10 @@ def run_second_level(cv, cfg, log=print, test=None, extra=None):
             tl.append(logit(np.clip(pk, 1e-6, 1 - 1e-6)))
         test["p"] = 1 / (1 + np.exp(-np.mean(tl, axis=0)))
         tq = query_table(test, rich_q=rich_q)
-        if bag_test:
+        if pnew_sp_mods is not None:
+            tq["pnew"] = _predict_pnew_per_species(pnew_sp_mods, tq, qfeats)
+            pm = pnew_sp_mods
+        elif bag_test:
             tq["pnew"] = predict_bag(pnew_mods, tq[qfeats].to_numpy(np.float32))
             pm = pnew_mods
         else:

@@ -15,7 +15,7 @@ def main():
     subprocess.run([sys.executable, str(ROOT / "scripts" / "check_compliance.py")], check=True)
     import numpy as np
     from reid.io import load_config
-    from reid.pipeline import prepare, build_tables, run_second_level, decide, evaluate, tune_beta
+    from reid.pipeline import prepare, build_tables, run_second_level, decide, evaluate, tune_beta, load_extra_cv, attach_optional_features
     from reid.tracking import new_exp_id, save_experiment, append_registry
     from reid import SPECIES
 
@@ -23,11 +23,18 @@ def main():
     t0 = time.time()
     data, ctx, splits = prepare(cfg)
     tabs = build_tables(cfg, data, ctx, splits)
-    cv = tabs["cv"]
-    t_tab = time.time() - t0
     trans_on = cfg["transductive"].get("enabled", False)
-    from reid.pipeline import load_extra_cv
-    out = run_second_level(cv, cfg, test=tabs["test"] if trans_on else None, extra=load_extra_cv(cfg))
+    extra = load_extra_cv(cfg)
+    cv, test_in, extra = attach_optional_features(cfg, data, ctx, splits, tabs["cv"], tabs["test"] if trans_on else None, extra)
+    import gc
+    del tabs
+    gc.collect()
+    t_tab = time.time() - t0
+    if cfg["model"].get("paradigm") == "dual":
+        from reid.dual_model import run_dual_pipeline
+        out = run_dual_pipeline(cfg, data, ctx, splits, cv, test=test_in, extra=extra)
+    else:
+        out = run_second_level(cv, cfg, test=test_in, extra=extra)
     cv, qdf, T = out["cv"], out["qdf"], out["T"]
     results = {}
     for method in cfg["model"].get("methods", ["softmax", "direct"]):
@@ -51,6 +58,10 @@ def main():
         sl.update(cv=cv, qdf=qdf, T=T, beta=b)
         (P(cfg, "cache") / f"second_level_{cfg.get('exp_slug')}.pkl").write_bytes(pickle.dumps(sl))
         _, best_t, _ = apply_transductive(cfg, ctx, data, splits, cv, qdf, out["test"], out["tqdf"], T, b)
+        from reid.transductive import EXPORT_CV, EXPORT_PROBS
+        slug = cfg.get("exp_slug")
+        (P(cfg, "cache") / f"cv_probs_{slug}.pkl").write_bytes(pickle.dumps(dict(EXPORT_CV)))
+        (P(cfg, "cache") / f"test_probs_{slug}.pkl").write_bytes(pickle.dumps(dict(EXPORT_PROBS)))
         ps = np.array([sum(W_TEST[sp] * best_t[sp]["per_split"][r] for sp in SPECIES) for r in range(len(splits))])
         po = np.array([sum(W_TEST[sp] * best_t[sp]["per_split_off"][r] for sp in SPECIES) for r in range(len(splits))])
         d = ps - po

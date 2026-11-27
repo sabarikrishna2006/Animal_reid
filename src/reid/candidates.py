@@ -6,7 +6,7 @@ Embeddings used: 'l2' (raw MiewID, L2-normalised), 'pcaw' (PCA-whitened on train
 import numpy as np
 import pandas as pd
 
-from .retrieval import IdentityIndex, fit_lda, l2n
+from .retrieval import IdentityIndex, fit_lda, fit_sw_and_fullda, l2n, rg_diff, vp_compat_stats
 from .sift_match import FEATS as SF
 
 SIDE = {"left": "L", "frontleft": "L", "backleft": "L", "right": "R", "frontright": "R", "backright": "R"}
@@ -46,6 +46,7 @@ class Context:
         self.vp = vp.fillna("NaN").values
         self.side = np.array([side_of(v) for v in vp.values])
         self.lognorm = np.log(np.linalg.norm(data.X.astype(np.float64), axis=1))
+        self._v25_cache = {}
 
 
 def vp_compat(Zg, labels, vps):
@@ -132,9 +133,47 @@ def k_reciprocal_rerank(Zq, Zg, k1=20, k2=6, lam=0.3):
     return 1.0 - ((1.0 - lam) * jaccard + lam * orig_dist[:nq, nq:])
 
 
+def _fold_v25(fold, ctx, idx, with_diff=False):
+    """Cached per-fold Full-2152 Sw whitening, Full Fisher LDA(512), cl2 centering, krec_sw10, diff_sw, vp_compat."""
+    key = (fold.species, len(fold.gallery_rows), len(fold.query_rows),
+           int(fold.gallery_rows[0]), int(fold.query_rows[0]))
+    b = ctx._v25_cache.get(key)
+    if b is None:
+        rcfg = ctx.cfg["retrieval"]
+        qr, gr = fold.query_rows, fold.gallery_rows
+        glab = fold.gallery_labels
+        projs = fit_sw_and_fullda(ctx.emb["l2"][gr], glab,
+                                  reg=float(rcfg.get("sw_reg", 0.5)),
+                                  d_lda=int(rcfg.get("fl_dim", 512)),
+                                  gside=ctx.side[gr])
+        hub_w = float(rcfg.get("sw_hub", 0.5))
+        Z_p, S_raw, M_v = {}, {}, {}
+        for k in ("cl2", "sw", "ssw", "fl512"):
+            zq, zg = projs[k](ctx.emb["l2"][qr]), projs[k](ctx.emb["l2"][gr])
+            Z_p[k] = (zq, zg)
+            sr = (zq @ zg.T).astype(np.float32)
+            S_raw[k] = sr
+            if k == "cl2":
+                M_v["cl2"] = idx.max(sr)
+            else:
+                rg = rg_diff(zg, glab, K=10)
+                M_v[f"{k}2152" if k in ("sw", "ssw") else k] = idx.max(sr - hub_w * rg[None, :])
+                M_v[f"{k}_raw"] = idx.max(sr)
+        Kr_sw = k_reciprocal_rerank(Z_p["sw"][0], Z_p["sw"][1], k1=10, k2=4, lam=0.3)
+        Mk_sw = idx.max(Kr_sw)
+        compat_sw = vp_compat_stats(Z_p["sw"][1], glab, ctx.vp[gr])
+        b = {"Z": Z_p, "S_sw_raw": S_raw["sw"], "M": M_v, "Mk_sw": Mk_sw,
+             "compat_sw": compat_sw, "Md_sw": None}
+        ctx._v25_cache[key] = b
+    if with_diff and b["Md_sw"] is None:
+        Dr_sw = manifold_diffusion(b["Z"]["sw"][0], b["Z"]["sw"][1], k=20, alpha=0.85, gamma=3.0, iters=25)
+        b["Md_sw"] = idx.max(Dr_sw)
+    return b
+
+
 def sift_pairs_for_fold(fold, ctx, n_cand_sift=None, per_id=None):
     """Pairs (query_row, gallery_row) needed for SIFT features, chosen from fold-legal info only."""
-    cfg = ctx.cfg["sift"]
+    cfg = ctx.cfg["sift"]; rcfg = ctx.cfg["retrieval"]
     n_cand_sift = n_cand_sift or cfg["top_ids"]; per_id = per_id or cfg["imgs_per_id"]
     Zq, Zg = ctx.emb["l2"][fold.query_rows], ctx.emb["l2"][fold.gallery_rows]
     S = Zq @ Zg.T
@@ -142,24 +181,44 @@ def sift_pairs_for_fold(fold, ctx, n_cand_sift=None, per_id=None):
     M = idx.max(S)
     M2 = (ctx.emb["pcaw"][fold.query_rows] @ ctx.emb["pcaw"][fold.gallery_rows].T)
     M2 = idx.max(M2)
-    lnb_k = int(ctx.cfg["retrieval"].get("lnbnn_cand", 0))
-    Lim, ImgMat = (None, None)
-    if lnb_k > 0:
-        from .lnbnn import fold_img_scores
-        Lim, ImgMat = fold_img_scores(fold, ctx, idx.ids)
+    lnb_k = int(rcfg.get("lnbnn_cand", 0))
+    lnb_uk = int(rcfg.get("lnbnn_ucand", 0))
+    v25 = bool(rcfg.get("v25_stage1", False))
+    Lim, Lu, ImgMat, UimgMat = (None, None, None, None)
+    if (lnb_k > 0 or lnb_uk > 0) and rcfg.get("lnbnn", False):
+        from .lnbnn import fold_uimg_scores
+        Lu, Lim, ImgMat, UimgMat = fold_uimg_scores(fold, ctx, idx.ids)
+    bv = _fold_v25(fold, ctx, idx, with_diff=False) if v25 else None
+    sw_k = int(rcfg.get("sw_cand", 15)) if v25 else 0
+    fl_k = int(rcfg.get("fl_cand", 15)) if v25 else 0
+    kr_k = int(rcfg.get("krec_sw_cand", 10)) if v25 else 0
+    per_id_sw = int(rcfg.get("sift_imgs_sw", 2)) if v25 else 0
+    k_im = int(rcfg.get("lnbnn_sift_imgs", 2))
+    k_um = int(rcfg.get("lnbnn_uimg_sift_imgs", 1)) if v25 else 0
     pairs = []
     for i in range(len(Zq)):
         r1 = np.argsort(-M[i])[:n_cand_sift]; r2 = np.argsort(-M2[i])[:n_cand_sift]
         cset = np.union1d(r1, r2)
-        if Lim is not None:
+        if Lim is not None and lnb_k > 0:
             cset = np.union1d(cset, np.argsort(-Lim[i])[:lnb_k])
+        if Lu is not None and lnb_uk > 0:
+            cset = np.union1d(cset, np.argsort(-Lu[i])[:lnb_uk])
+        if bv is not None:
+            if sw_k > 0:
+                cset = np.union1d(cset, np.argsort(-bv["M"]["sw2152"][i])[:sw_k])
+            if fl_k > 0:
+                cset = np.union1d(cset, np.argsort(-bv["M"]["fl512"][i])[:fl_k])
+            if kr_k > 0:
+                cset = np.union1d(cset, np.argsort(-bv["Mk_sw"][i])[:kr_k])
         for c in cset:
             cols = idx.order[idx.starts[c]: idx.starts[c] + idx.counts[c]]
             best = cols[np.argsort(-S[i, cols])[:per_id]]
-            if ImgMat is not None:
-                k_im = int(ctx.cfg["retrieval"].get("lnbnn_sift_imgs", 2))
-                best_l = cols[np.argsort(-ImgMat[i, cols])[:k_im]]
-                best = np.union1d(best, best_l)
+            if bv is not None and per_id_sw > 0:
+                best = np.union1d(best, cols[np.argsort(-bv["S_sw_raw"][i, cols])[:per_id_sw]])
+            if ImgMat is not None and k_im > 0:
+                best = np.union1d(best, cols[np.argsort(-ImgMat[i, cols])[:k_im]])
+            if UimgMat is not None and k_um > 0:
+                best = np.union1d(best, cols[np.argsort(-UimgMat[i, cols])[:k_um]])
             pairs += [(fold.query_rows[i], fold.gallery_rows[j]) for j in best]
     return pairs
 
@@ -255,11 +314,40 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
     sift_on = ctx.pc is not None
     sift_top = ctx.cfg["sift"]["top_ids"]; per_id = ctx.cfg["sift"]["imgs_per_id"]
     ii = SF.index
-    lnb_k = int(ctx.cfg["retrieval"].get("lnbnn_cand", 0))
-    Lim, ImgMat = (None, None)
-    if lnb_k > 0:
-        from .lnbnn import fold_img_scores
-        Lim, ImgMat = fold_img_scores(fold, ctx, idx.ids)
+    rcfg = ctx.cfg["retrieval"]
+    v25 = bool(rcfg.get("v25_stage1", False))
+    lnb_k = int(rcfg.get("lnbnn_cand", 0))
+    lnb_uk = int(rcfg.get("lnbnn_ucand", 0)) if v25 else 0
+    Lim, Lu, ImgMat, UimgMat = (None, None, None, None)
+    if (lnb_k > 0 or lnb_uk > 0) and rcfg.get("lnbnn", False):
+        from .lnbnn import fold_uimg_scores
+        Lu, Lim, ImgMat, UimgMat = fold_uimg_scores(fold, ctx, idx.ids)
+    bv = _fold_v25(fold, ctx, idx, with_diff=True) if v25 else None
+    compat_l2 = vp_compat_stats(Z["l2"][1], fold.gallery_labels, gvp) if v25 else None
+    V25_EMBS = ("sw2152", "ssw2152", "sw_raw", "ssw_raw", "fl512", "fl512_raw", "cl2")
+    V25_R, V25_Q = {}, {}
+    if bv is not None:
+        Mv = bv["M"]
+        for e in V25_EMBS:
+            V25_R[e] = np.argsort(np.argsort(-Mv[e], axis=1), axis=1)
+            srt = -np.sort(-Mv[e], axis=1)
+            V25_Q[f"q_{e}_max"] = srt[:, 0]
+            V25_Q[f"q_{e}_gap"] = srt[:, 0] - srt[:, 1]
+            V25_Q[f"q_{e}_mean10"] = srt[:, :10].mean(1)
+            V25_Q[f"q_{e}_std10"] = srt[:, :10].std(1)
+        for nm, mat in (("krec_sw10", bv["Mk_sw"]), ("diff_sw", bv["Md_sw"])):
+            srt = -np.sort(-mat, axis=1)
+            V25_Q[f"q_{nm}_max"] = srt[:, 0]
+            V25_Q[f"q_{nm}_gap"] = srt[:, 0] - srt[:, 1]
+            V25_Q[f"q_{nm}_mean10"] = srt[:, :10].mean(1)
+            V25_Q[f"q_{nm}_std10"] = srt[:, :10].std(1)
+    sw_k = int(rcfg.get("sw_cand", 15)) if v25 else 0
+    fl_k = int(rcfg.get("fl_cand", 15)) if v25 else 0
+    kr_k = int(rcfg.get("krec_sw_cand", 10)) if v25 else 0
+    per_id_sw = int(rcfg.get("sift_imgs_sw", 2)) if v25 else 0
+    k_im = int(rcfg.get("lnbnn_sift_imgs", 2))
+    k_um = int(rcfg.get("lnbnn_uimg_sift_imgs", 1)) if v25 else 0
+    qf.update({k: v for k, v in V25_Q.items() if k.endswith(("_max", "_gap"))})
     KREC = {}
     if ctx.cfg["retrieval"].get("krec", False):
         for e in ("l2", "lda"):
@@ -296,15 +384,32 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
         qf["q_mlp_max"] = smlp[:, 0]; qf["q_mlp_gap"] = smlp[:, 0] - smlp[:, 1]
     for i in range(nq):
         cands = list(np.argsort(comb[i])[:n_cand])
-        if Lim is not None:
-            cset_now = set(cands)
-            for c_extra in np.argsort(-Lim[i])[:lnb_k]:
-                if int(c_extra) not in cset_now:
-                    cands.append(int(c_extra)); cset_now.add(int(c_extra))
+        cset_now = set(cands)
+        def _add_top(scores, k):
+            if scores is not None and k > 0:
+                for c_extra in np.argsort(-scores)[:k]:
+                    ci = int(c_extra)
+                    if ci not in cset_now:
+                        cands.append(ci); cset_now.add(ci)
+        _add_top(Lim[i] if Lim is not None else None, lnb_k)
+        _add_top(Lu[i] if Lu is not None else None, lnb_uk)
+        if bv is not None:
+            _add_top(bv["M"]["sw2152"][i], sw_k)
+            _add_top(bv["M"]["fl512"][i], fl_k)
+            _add_top(bv["Mk_sw"][i], kr_k)
         cands = np.array(cands, dtype=int)
         r1 = set(np.argsort(-M["l2"][i])[:sift_top]) | set(np.argsort(-M["pcaw"][i])[:sift_top])
-        if Lim is not None:
+        if Lim is not None and lnb_k > 0:
             r1 |= set(int(x) for x in np.argsort(-Lim[i])[:lnb_k])
+        if Lu is not None and lnb_uk > 0:
+            r1 |= set(int(x) for x in np.argsort(-Lu[i])[:lnb_uk])
+        if bv is not None:
+            if sw_k > 0:
+                r1 |= set(int(x) for x in np.argsort(-bv["M"]["sw2152"][i])[:sw_k])
+            if fl_k > 0:
+                r1 |= set(int(x) for x in np.argsort(-bv["M"]["fl512"][i])[:fl_k])
+            if kr_k > 0:
+                r1 |= set(int(x) for x in np.argsort(-bv["Mk_sw"][i])[:kr_k])
         for c in cands:
             row = {"qi": i, "cand": c}
             for e in EMBS:
@@ -322,6 +427,19 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
                 row[f"cls_{e}"] = Pc[i, c]
                 row[f"cls_{e}_gap"] = Pc[i, c] - m1[i]
             row["comb_rank"] = int(np.where(cands == c)[0][0])
+            if bv is not None:
+                Mv = bv["M"]
+                for e in V25_EMBS:
+                    val = float(Mv[e][i, c])
+                    row[f"max_{e}"] = val
+                    row[f"rank_{e}"] = float(V25_R[e][i, c])
+                    row[f"gap_{e}"] = val - float(V25_Q[f"q_{e}_max"][i])
+                    row[f"z_{e}"] = (val - float(V25_Q[f"q_{e}_mean10"][i])) / (float(V25_Q[f"q_{e}_std10"][i]) + 1e-6)
+                for nm, mat in (("krec_sw10", bv["Mk_sw"]), ("diff_sw", bv["Md_sw"])):
+                    val = float(mat[i, c])
+                    row[f"max_{nm}"] = val
+                    row[f"gap_{nm}"] = val - float(V25_Q[f"q_{nm}_max"][i])
+                    row[f"z_{nm}"] = (val - float(V25_Q[f"q_{nm}_mean10"][i])) / (float(V25_Q[f"q_{nm}_std10"][i]) + 1e-6)
             for e in PROF:
                 row[f"prof_{e}"] = PROF[e][i, c]
                 row[f"intra_{e}"] = INTRA[e][c]
@@ -340,15 +458,30 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
             k = (qvp[i], gvp[jbest]) if qvp[i] <= gvp[jbest] else (gvp[jbest], qvp[i])
             row["compat_best"] = compat.get(k, np.nan)
             row["max_minus_compat"] = M["l2"][i, c] - row["compat_best"]
+            if bv is not None:
+                c_l2 = compat_l2.get(k)
+                row["z_compat_l2"] = (M["l2"][i, c] - c_l2[0]) / c_l2[1] if c_l2 is not None else np.nan
+                sims_sw = bv["S_sw_raw"][i, cols]
+                jbest_sw = cols[sims_sw.argmax()]
+                row["max_same_side_sw"] = sims_sw[same].max() if (sd in "LR" and same.any()) else np.nan
+                row["max_opp_side_sw"] = sims_sw[opp].max() if (sd in "LR" and opp.any()) else np.nan
+                k_sw = (qvp[i], gvp[jbest_sw]) if qvp[i] <= gvp[jbest_sw] else (gvp[jbest_sw], qvp[i])
+                c_sw = bv["compat_sw"].get(k_sw)
+                row["compat_best_sw"] = c_sw[0] if c_sw is not None else np.nan
+                row["max_minus_compat_sw"] = bv["M"]["sw_raw"][i, c] - row["compat_best_sw"]
+                row["z_compat_sw"] = (bv["M"]["sw_raw"][i, c] - c_sw[0]) / c_sw[1] if c_sw is not None else np.nan
             # reciprocity of best image: how many pool items are closer to g* than q is
             n_closer = npool - np.searchsorted(GS[jbest], np.float32(M["l2"][i, c]), side="right")
             row["recip_rank"] = np.log1p(max(n_closer - 1, 0))
             if sift_on:
                 if c in r1:
                     best = cols[np.argsort(-S["l2"][i, cols])[:per_id]]
-                    if ImgMat is not None:
-                        k_im = int(ctx.cfg["retrieval"].get("lnbnn_sift_imgs", 2))
+                    if bv is not None and per_id_sw > 0:
+                        best = np.union1d(best, cols[np.argsort(-bv["S_sw_raw"][i, cols])[:per_id_sw]])
+                    if ImgMat is not None and k_im > 0:
                         best = np.union1d(best, cols[np.argsort(-ImgMat[i, cols])[:k_im]])
+                    if UimgMat is not None and k_um > 0:
+                        best = np.union1d(best, cols[np.argsort(-UimgMat[i, cols])[:k_um]])
                     F = np.array([ctx.pc.get(qr[i], gr[j]) for j in best], dtype=np.float32)
                     inl = np.nan_to_num(F[:, ii("inl_aff")], nan=-1)
                     k2 = np.argsort(-inl)
@@ -372,6 +505,22 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
                         row["sift_inl_clean"] = float(inl_c.max()) if (inl_c >= 0).any() else np.nan
                         row["sift_n6_clean"] = float((inl_c >= 6).sum())
                         row["sift_best_is_bg"] = float(is_bg[k2[0]])
+                    if bv is not None and UimgMat is not None:
+                        rot_v = np.nan_to_num(F[:, ii("abs_rot")], nan=99.0)
+                        spr_v = np.nan_to_num(F[:, ii("spread_min")], nan=1.0)
+                        inl_v = np.nan_to_num(F[:, ii("inl_aff")], nan=-1.0)
+                        im_g = ImgMat[i, best]; uim_g = UimgMat[i, best]
+                        ush_g = uim_g / np.maximum(im_g, 1e-6)
+                        row["sift_best_ushare"] = float(ush_g[k2[0]])
+                        opp_g = gside[best] == ("R" if sd == "L" else "L")
+                        row["sift_opp_side_inl"] = float(inl_v[opp_g].max()) if (sd in "LR" and opp_g.any() and (inl_v[opp_g] >= 0).any()) else np.nan
+                        row["sift_n_vps_hi"] = float(len(set(gvp[best][inl_v >= 10])))
+                        if rcfg.get("bg_clean_v2_img", False):
+                            is_bg2_g = ((rot_v < 0.50) & (spr_v < 0.25)) | ((rot_v < 0.50) & (ush_g < 0.35) & (inl_v >= 6))
+                            inl_c2 = np.where(is_bg2_g, 0.0, inl_v)
+                            row["sift_inl_clean2"] = float(inl_c2.max()) if (inl_c2 >= 0).any() else np.nan
+                            row["sift_n6_clean2"] = float((inl_c2 >= 6).sum())
+                            row["sift_is_bg2"] = float(is_bg2_g[k2[0]])
                 else:
                     row["sift_checked"] = 0
             rows.append(row)
@@ -388,6 +537,9 @@ def build_table(fold, ctx, n_cand=20, transductive=False, lda_cfg=None):
         if ctx.cfg["retrieval"].get("bg_clean", False):
             df["q_sift_inl_clean_max"] = g.sift_inl_clean.transform("max")
             df["sift_inl_clean_minus_qmax"] = df.sift_inl_clean - df.q_sift_inl_clean_max
+        if "sift_inl_clean2" in df.columns:
+            df["q_sift_inl_clean2_max"] = g.sift_inl_clean2.transform("max")
+            df["sift_inl_clean2_minus_qmax"] = df.sift_inl_clean2 - df.q_sift_inl_clean2_max
     if transductive:
         # neighbour votes: share of q's top-5 query neighbours (cos>0.5) whose top-1 identity (pcaw) is c,
         # and best (neighbour cos x neighbour's score for c)
