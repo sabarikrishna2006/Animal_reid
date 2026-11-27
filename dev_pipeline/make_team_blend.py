@@ -43,11 +43,23 @@ RECIPES = {
         ("sab", "v24_fullbg_sw2152", 1 / 10),
         ("sab", "v25_fullbg_sw2152_lda512", 1 / 10),
     ],
+    "lnb39": [
+        ("dev", "test_probs_dev_bg_swproto_lgb_lprop.pkl", 1 / 8),
+        ("dev", "test_probs_dev_bg_swproto_mlp_lprop.pkl", 1 / 8),
+        ("dev", "test_probs_dev_v10_swproto_lgb_lprop.pkl", 1 / 8),
+        ("dev", "test_probs_dev_v10_swproto_mlp_lprop.pkl", 1 / 8),
+        ("sab", "v17_bgclean_conn", 1 / 10),
+        ("sab", "v19_bgclean_v2", 1 / 10),
+        ("sab", "v24_fullbg_sw2152", 1 / 10),
+        ("sab", "v25_fullbg_sw2152_lda512", 1 / 10),
+        ("sab", "v26_fullbg_sw2152_proto", 1 / 10),
+    ],
 }
 OUT_NAME = {
     "lnb32": "sub_team_blend_lnb32_lprop67.csv",
     "lnb34": "sub_team_blend_lnb34_sw2152.csv",
     "lnb36": "sub_team_blend_lnb36_sw2152_v25.csv",
+    "lnb39": "sub_team_blend_lnb39_swproto_g2q_mlp.csv",
 }
 
 

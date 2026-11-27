@@ -1,6 +1,6 @@
 # Wildlife Re-Identification (Problem 3): report notes, team BLACKbox
 
-Final submission: **`sub_team_blend_lnb38_v28_g2q_safe.csv`** (`sub-v30-2026-11-27-blend-lnb38`), public LB **`0.88605`** (Rank 1).
+Final submission: **`sub_team_blend_lnb39_swproto_g2q_mlp.csv`** (`sub-v31-2026-11-27-blend-lnb39`), public LB **`0.88690`** (Rank 1).
 Second selected submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`**.
 Complete submission tag history (`sub-v01`..`sub-v30`): **[`SUBMISSIONS.md`](../SUBMISSIONS.md)**.
 

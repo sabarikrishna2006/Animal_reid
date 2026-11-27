@@ -77,6 +77,9 @@ def main():
         tabs = build_tables(cfg, data, ctx, splits)
         extra = load_extra_cv(cfg)
         cv_in, test_in, extra = attach_optional_features(cfg, data, ctx, splits, tabs["cv"], tabs["test"], extra)
+        if cfg["model"].get("sw_proto", False):
+            from reid.pipeline import attach_sw_proto
+            cv_in, test_in, extra = attach_sw_proto(cfg, data, ctx, splits, cv_in, test_in, extra)
         import gc
         del tabs
         gc.collect()
