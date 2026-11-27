@@ -1,4 +1,4 @@
-# Wildlife Re-ID (spotted hyena + leopard, MAP@5)
+# Wildlife Re-ID (spotted hyena + leopard, MAP@5) — Group 53 (Team NeuerXjensen)
 (Problem 3): for each test image, rank up to 5 labels (a training identity of the same species or
 `new_individual`). Only the provided MiewID embeddings and SIFT keypoints may be used. **Read `PLAN.md` for the rules
 before changing anything** (allowed libraries, cv2 restrictions, no images, submissions only via the script).
@@ -28,7 +28,7 @@ before changing anything** (allowed libraries, cv2 restrictions, no images, subm
 **`sub_team_blend_lnb39_swproto_g2q_mlp.csv` (`sub-v31-2026-11-27-blend-lnb39`): Public LB `0.88690` (Rank 1)** (second selected submission: `sub_team_blend_lnb38_v28_g2q_safe.csv`, `sub-v30-2026-11-27-blend-lnb38`, Public LB `0.88605`; third: `sub_team_blend_lnb36_sw2152_v25.csv`, `sub-v29-2026-11-26-blend-lnb36`, Public LB `0.88585`).
 Official submission tag log: **[`SUBMISSIONS.md`](SUBMISSIONS.md)**. Full report: **[`reports/final_report.md`](reports/final_report.md)**.
 
-### Individual Contributions (Team NeuerXjensen)
+### Individual Contributions (Group 53 — Team NeuerXjensen)
 | Team Member | GitHub Account | Key Contributions |
 |---|---|---|
 | **Sabari Krishna R** | `sabarikrishna2006` | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model `src/reid/` ensemble `v17..v26` in the final blend). |

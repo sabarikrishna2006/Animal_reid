@@ -1,4 +1,4 @@
-# Wildlife Re-Identification (Problem 3): report notes, team NeuerXjensen
+# Wildlife Re-Identification (Problem 3): report notes, Group 53 (Team NeuerXjensen)
 
 Final submission: **`sub_team_blend_lnb39_swproto_g2q_mlp.csv`** (`sub-v31-2026-11-27-blend-lnb39`), public LB **`0.88690`** (Rank 1).
 Second selected submission: **`sub_team_blend_lnb36_sw2152_v25.csv`** (`sub-v29-2026-11-26-blend-lnb36`), public LB **`0.88585`**.
@@ -130,18 +130,28 @@ Remaining loss (shared CV, blend): known animal ranked below `new_individual` 0.
 - *Biggest remaining error?* Known animals seen in a new encounter (low similarity, no keypoint match) get
   `new_individual` ranked first; with only the provided features there is little evidence left to fix them.
 
-## 8. Selected Three Model Versions & Progression (Evaluation Factor 2b)
-| Model Version | Git Tag & CSV | Honest CV | Public LB | Gain vs. Baseline | Key Architecture |
+## 8. Selected Three Model Versions & Experiments Run Between Each Stage (Evaluation Factor 2b)
+| Model Version | Git Tag & CSV | Local CV | Public LB | Gain vs. Baseline | Key Architecture |
 |---|---|---:|---:|---:|---|
 | **Version 1 (Baseline)** | `sub-v02` (`sub_baseline_rawcos.csv`) | `0.8486` (CV v1) | `0.76983` | baseline | Raw L2 MiewID cosine + fixed novelty threshold |
-| **Version 2 (Intermediate)** | `sub-v11` (`sub_team_blend_lnb7.csv`) | `0.8764` (shared) | `0.88073` | **`+0.11090`** | Dual-pipeline 50/50 blend + `lnb_img` LNBNN candidate expansion + guided RANSAC SIFT + k-reciprocal + Zhou prop |
+| **Version 2 (Intermediate)** | `sub-v05` (`sub_team_blend.csv`) / `sub-v11` (`sub_team_blend_lnb7.csv`) | `0.8658` / `0.8764` (shared) | `0.85813` → `0.88073` | **`+0.08830` → `+0.11090`** | Dual-pipeline 50/50 blend (`PCA-LDA` + SIFT RANSAC + LightGBM + graph prop), then + `lnb_img` LNBNN candidate expansion + guided RANSAC SIFT + k-reciprocal |
 | **Version 3 (Best Final)** | `sub-v31` (`sub_team_blend_lnb39_swproto_g2q_mlp.csv`) | **`0.88780`** (8-split shared) / **`0.93385`** (5-split CV v1) | **`0.88690`** | **`+0.11707`** | + 2-Stage Camera-Trap SIFT Killers + Gallery-only `Sw2152` & Centroid Prototypes/DBA (`sw_proto`) + R1/R2 `G2Q` + non-tree Neural Net `MLPClassifier(128, 64)` + `sw_qq` learned `lprop` (`AUC 0.98265`) + `v26_fullbg_sw2152_proto` |
+
+### Summary of Experiments Run After Each Model Version
+1. **Experiments After Model 1 (`sub-v02`, `0.76983`) → Leading to Model 2 (`sub-v05`, `0.85813`):**
+   - *Kept:* Gallery-only centering + `PCA(256)->LDA(0.3)` (`exp_g2`, `0.8712` CV v1); monotone LightGBM reranker + per-species `P(new)` + softmax temperature calibration (`exp_g3`, `0.8895` CV v1); pairwise RootSIFT + Lowe ratio (`0.8`) + RANSAC affine/homography verification (`exp_g4_sift`, `0.8984` CV v1); iterative query–query graph label propagation (`exp_g5_final` / `sub-v03`, **`0.84116` LB**); `CV v2` adversarial recalibration & mixed-difficulty training (`exp_v3_sift` `sub-v04` `0.83192` → `exp_v7_g5wide` → `exp_v8_mix` `0.84856`); 50/50 probability blend with the 2-round neighbor-stacked `dev_pipeline` `v5` model (`sub-v05`, **`0.85813` LB**).
+   - *Tried & Dropped:* Viewpoint imputer (`exp_g4_vpimp`), 2nd-order similarity profile (`exp_v4_profile`), looser SIFT ratio `0.9` (`exp_v5_ratio09`), cross-flank LDA (`exp_v6_xlda`), and LGB+XGB+CatBoost stacking (`exp_g5_stack`).
+2. **Experiments After Model 2 (`sub-v05`, `0.85813`) → Leading to Model 3 (`sub-v31`, `0.88690`):**
+   - *Kept:* One-vs-many FAISS LNBNN (`K=10/K=3`) + keypoint query graph (`sub-v09..v10`, `0.86515 → 0.86749`); `lnb_img` top-5 candidate expansion + guided RANSAC SIFT + k-reciprocal re-ranking (`sub-v11`, **`0.88073`**); `nprobe=64` LNBNN background masking (`lnb_uimg`, `lnb_rimg`) + `conn_new_scale` isolated-node propagation fix (`sub-v12..v17`, **`0.88101`**); Stage-1 corner camera-trap SIFT killer (`sub-v21`, **`0.88238`**); Stage-2 full-frame camera-trap SIFT killer + gallery hubness (`r_g_diff`) + missing-candidate veto fix (`sub-v22`, **`0.88375`**); strictly nested OOF learned BG-filtered query–query propagation (`lprop` AUC `0.9777`, `sub-v24`, **`0.88403`**); gallery-only `PCA(512)-LDA`, `Side-LDA`, and full 2,152-d $S_w^{-1/2}$ whitening (`sw2152`, `sub-v26` **`0.88424` Rank 1** → dual-pool `sub-v29` **`0.88585` Rank 1**); Saket Anand & retrieval literature `v27` experiments (`Sw2152` Diffusion/Prototypes/DBA `+0.00758` & Cross-Flank Procrustes `+0.00420`, `sub-v27`); `v28` Transductive Gallery-to-Query Column Reciprocal Z-Score/Share (`G2Q`) + safe novelty gating (`sub-v30`, **`0.88605` Rank 1**); and dual-pool `Sw2152` Centroid Prototypes/DBA (`sw_proto`) + `G2Q` + non-tree `MLPClassifier(128, 64)` + `sw_qq` learned `lprop` (`AUC 0.98265`) + `v26_fullbg_sw2152_proto` (`sub-v31`, **`0.88690` Rank 1**).
+   - *Tried & Dropped:* `P(new)` prior shift (`sub-v06`, `0.85504`), CV-tuned pipeline weights (`sub-v07..v08`, `0.85698`), confident test pseudo-labeling (`sub-v09`, `0.85829`), high-alpha `0.95` bagged propagation (`sub-v18..v19`, `0.87843`), single-pool `100% v10_fullbg` (`sub-v23`, `0.88155`), `67/33` internal pool weighting (`sub-v25`, `0.88272`), post-hoc rank-surrogate blending (`sub-v28`, `0.88351`), and unprotected `NEW → Known` delta fusion (`sub-v30a`, `0.88424`).
+3. **Experiments Run After Model 3 (`sub-v31`, `0.88690`):**
+   - Tested conservative 50/50 superblend with `lnb36` (`sub-v31a`, `0.88518` — dropped, confirming pure `lnb39` is `+0.00172` stronger); explored HNSW `k=50` LNBNN + 4-family Round-2 stacking (`v25_hnsw_rescue + v26_dual_r2`), non-GBDT Dual RBF Kernel Ridge & per-flank sub-prototypes (`alt_approach_v4.py`), and `v29` bipartite matching + `HistGradientBoosting` Round-2 ensembling; and executed the 5-point Private-LB anti-overfitting audit (1,000× Monte Carlo 70/30 Private simulation where `lnb39` wins `93.7%` of draws, split-0 learning curves, OOF ECE `0.0493` / Brier `0.0811`, and blend weight perturbation stability `99.57–100%`).
 
 ## 9. Limitations & Capabilities of the Best Model (Evaluation Factor 2c)
 - **Capabilities:** Near-human accuracy on same-flank multi-shot individuals (`0.93+` MAP@5 on 6+ photo IDs), robust camera-trap background rejection (zeroes static foliage/timestamp false SIFT matches), well-calibrated open-set novelty detection (`Top-1 ECE = 0.0493`, `Brier = 0.0811`, `mean P(new) = 0.3254`), and `99.57–100%` top-1 stability under blend perturbations.
 - **Limitations:** Asymmetric opposite-flank queries (left query vs. right-only gallery) remain the hardest failure mode (`MAP 0.275` leopard / `0.488` hyena) because coat spots differ across flanks and raw images/timestamps/GPS are unavailable; 1-photo gallery individuals (`0.396` leopard / `0.552` hyena) and ~`3.5%` candidate-recall misses represent the physical information ceiling of MiewID + SIFT alone.
 
-## 10. Individual Contributions (Team NeuerXjensen — Evaluation Factor 2d & Rule 3)
+## 10. Individual Contributions (Group 53 — Team NeuerXjensen — Evaluation Factor 2d & Rule 3)
 | Team Member | GitHub Account | Major Contributions |
 |---|---|---|
 | **Sabari Krishna R** | `sabarikrishna2006` | Repository setup, compliance & leakage unit test suite (`tests/`), Exploratory Data Analysis (`eda/`, `reports/eda.md`), CV-vs-LB recalibration & error diagnostics (`scripts/diagnose_cvlb.py`, `error_breakdown.py`, `mix_cv.py`, `reports/gate1..5.md`), and the core `src/reid/` pipeline (encounter-disjoint open-set CV v1/v2, retrieval, SIFT RANSAC, monotone LightGBM reranker, softmax calibration, and transductive propagation powering `sub-v01..v04` and the 5-model `src/reid/` ensemble `v17..v26` in the final blend). |
