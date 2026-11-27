@@ -56,6 +56,8 @@ exp_id,date,parent_exp,change,cv_mean,cv_std,map_hyena,map_leopard,known_map,new
 20261122-171705_sub_team_blend_lnb7,20261122,,SUBMISSION -> sub_20261122-171705_sub_team_blend_lnb7.csv,nan,,,,,,,,
 20261126-202556_v19_bgclean_v2,20261126,,v19_bgclean_v2,0.9201,0.00829,0.88176,0.94975,0.88449,0.94938,,,
 20261126-203325_v24_fullbg_sw2152,20261126,,v24_fullbg_sw2152,0.92134,0.00948,0.88601,0.94866,0.89165,0.94865,,,
+20261126-202556_v19_bgclean_v2,20261126,,v19_bgclean_v2,0.9201,0.00829,0.88176,0.94975,0.88449,0.94938,,,
+20261126-203325_v24_fullbg_sw2152,20261126,,v24_fullbg_sw2152,0.92134,0.00948,0.88601,0.94866,0.89165,0.94865,,,
 20261125-194400_sub_team_blend_lnb32,20261125,,SUBMISSION -> sub_team_blend_lnb32_lprop67.csv,0.88310,,,,,,,no,0.88272
 20261125-224700_sub_team_blend_lnb34_sw2152,20261125,,SUBMISSION -> sub_team_blend_lnb34_sw2152.csv (Rank 1: PCA512-LDA + Side-LDA + Full 2152-dim Sw^-1/2 Whitening),0.88936,0.00703,,,,,,yes,0.88424
 20261126-190100_v27_5paper_honest_cv8,20261126,20261125-224700_sub_team_blend_lnb34_sw2152,"v27 (8-split Honest per_enc=1 CV, Round-1): Sw2152 Manifold Diffusion/DBA + Cross-Flank Procrustes + Cohort AS-Norm + Bayesian PLDA + Sinkhorn OT + nprobe=64 LNBNN",0.86456,0.00519,,,,,,yes,0.86594
